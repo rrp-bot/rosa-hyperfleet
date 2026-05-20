@@ -393,3 +393,23 @@ output "thanos_helm_values" {
   description = "Helm values for Thanos Receiver chart (use with -f flag)"
   value       = module.thanos_infrastructure.helm_values
 }
+
+# =============================================================================
+# Loki Infrastructure Outputs
+# =============================================================================
+
+output "loki_kms_key_arn" {
+  description = "KMS key ARN for Loki S3 SSE-KMS encryption"
+  value       = module.loki_infrastructure.kms_key_arn
+}
+
+output "loki_distributor_target_group_arn" {
+  description = "Target group ARN for Loki Distributor TargetGroupBinding (dedicated RHOBS ALB)"
+  value       = module.rhobs_api_gateway.loki_distributor_target_group_arn
+}
+
+output "loki_query_frontend_target_group_arn" {
+  description = "Target group ARN for Loki Query Frontend TargetGroupBinding (dedicated RHOBS ALB)"
+  value       = module.rhobs_api_gateway.loki_query_frontend_target_group_arn
+}
+

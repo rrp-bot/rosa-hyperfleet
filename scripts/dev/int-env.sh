@@ -263,9 +263,10 @@ cmd_port_forward() {
     local maestro="maestro   - Maestro HTTP + gRPC"
     local argocd="argocd    - ArgoCD server HTTPS"
     local prometheus="prometheus  - Prometheus Monitoring Dashboard"
+    local loki="loki      - Loki Query Frontend (platform logs)"
     local grafana="grafana   - Grafana Dashboard"
 
-    local regional_svc_list=("$maestro" "$argocd" "$prometheus" "$grafana")
+    local regional_svc_list=("$maestro" "$argocd" "$prometheus" "$loki" "$grafana")
     local management_svc_list=("$argocd" "$prometheus")
 
     local services
@@ -314,6 +315,11 @@ cmd_port_forward() {
         prometheus)
             forwards+=(
             "Prometheus 9090 9090 monitoring-prometheus monitoring 9090"
+            )
+            ;;
+        loki)
+            forwards+=(
+            "Loki-Query 13100 13100 loki-query-frontend loki 3100"
             )
             ;;
         grafana)

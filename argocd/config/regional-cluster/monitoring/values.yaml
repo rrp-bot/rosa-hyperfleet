@@ -90,6 +90,10 @@ kube-prometheus-stack:
       serviceMonitorNamespaceSelector: {}
       serviceMonitorSelector: {}
 
+      podMonitorSelectorNilUsesHelmValues: false
+      podMonitorNamespaceSelector: {}
+      podMonitorSelector: {}
+
       # This prevents us from scheduling prometheus pods within the same AZ,
       # so that we have at least one zone with a replica
       topologySpreadConstraints:
