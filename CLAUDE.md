@@ -41,6 +41,19 @@ The **ROSA Regional Platform** is a strategic redesign of Red Hat OpenShift Serv
 - **Languages**: Go (primary backend), Shell scripting
 - **Container Orchestration**: Kubernetes via EKS
 
+## Project Tracking
+
+Work for the ROSA Regional Platform is tracked in Jira under two parent Outcomes:
+
+- **[HPSTRAT-62](https://redhat.atlassian.net/browse/HPSTRAT-62)** ("Red Hat Cloud Data Sovereignty"): Feature-driven work covering the regional platform build-out (architecture, infrastructure, services, tooling).
+- **[HPSTRAT-11](https://redhat.atlassian.net/browse/HPSTRAT-11)** ("FedRAMP Moderate Technical Delivery"): Compliance work covering FedRAMP security controls, audit requirements, and certification readiness.
+
+Each Outcome contains **Feature** issues in the **ROSA** project representing milestones, identified by the `[Regionality]` prefix in their summary (e.g. "[Regionality] Milestone 5 - CLM Integration").
+
+Day-to-day engineering tasks (epics, stories, bugs) live in the **ROSAENG** project under the **"ROSA Regionality Platform"** component.
+
+The portfolio view JQL combines both: the ROSAENG component filter plus the ROSA `[Regionality]` milestone Features by key.
+
 ## Development Guidelines
 
 ### Agent Usage
@@ -162,5 +175,3 @@ See [`docs/development-environment.md`](docs/development-environment.md) for ful
 - `bootstrap-argocd.sh` - ECS Fargate bootstrap script
 - `argocd/config/shared/argocd/` - ArgoCD self-management Helm chart
 - Design decisions follow ADR format in `docs/design/`
-
-Include AGENTS.md
