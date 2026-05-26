@@ -1,7 +1,8 @@
 #!/bin/bash
 # CI entrypoint for unit tests.
-
 set -euo pipefail
+
+export UV_NO_CACHE=1
 
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
