@@ -110,7 +110,7 @@ spec:
             name: letsencrypt-dns01
             kind: ClusterIssuer
           dnsNames:
-            - "api.{{ .clusterName }}.{{ $hash4 }}.{{ .baseDomain }}"
+            - "*.{{ .clusterName }}.{{ $hash4 }}.{{ .baseDomain }}"
 
       - apiVersion: hypershift.openshift.io/v1beta1
         kind: HostedCluster
@@ -178,13 +178,16 @@ spec:
                   value: owned
                 - key: red-hat-managed
                   value: "true"
+          # On EKS MCs (unlike OpenShift MCs) there is no default ingress cert
+          # whose Let's Encrypt chain would be bundled into the admin kubeconfig CA.
+          # This field triggers a custom-admin-kubeconfig that includes the named
+          # certificate's CA chain so TLS validation works for external access.
+          kubeAPIServerDNSName: "api.{{ .clusterName }}.{{ $hash4 }}.{{ .baseDomain }}"
           configuration:
             apiServer:
               servingCerts:
                 namedCertificates:
-                  - names:
-                      - "api.{{ .clusterName }}.{{ $hash4 }}.{{ .baseDomain }}"
-                    servingCertificate:
+                  - servingCertificate:
                       name: api-serving-cert
           issuerURL: "{{ .cloudUrl }}/{{ .clusterId }}"
           # On EKS (non-OpenShift), using Route with explicit hostnames for KAS
