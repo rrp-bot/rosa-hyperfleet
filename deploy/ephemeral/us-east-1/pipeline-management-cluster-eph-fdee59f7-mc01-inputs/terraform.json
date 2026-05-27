@@ -9,7 +9,11 @@
   "alias": "eph-fdee59f7-mc01",
   "management_id": "eph-fdee59f7-mc01",
   "regional_aws_account_id": "599476212575",
-  "node_instance_types": ["t3.medium", "t3a.medium"],
+  "node_instance_types": [
+    "t3.medium",
+    "t3a.medium"
+  ],
   "enable_bastion": true,
-  "delete": true
+  "delete": true,
+  "_triggered_at": "2026-05-27T13:05:41Z"
 }
