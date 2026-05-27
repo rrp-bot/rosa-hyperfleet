@@ -187,7 +187,9 @@ spec:
             apiServer:
               servingCerts:
                 namedCertificates:
-                  - servingCertificate:
+                  - names:
+                      - "api.{{ .clusterName }}.{{ $hash4 }}.{{ .baseDomain }}"
+                    servingCertificate:
                       name: api-serving-cert
           issuerURL: "{{ .cloudUrl }}/{{ .clusterId }}"
           # On EKS (non-OpenShift), using Route with explicit hostnames for KAS
