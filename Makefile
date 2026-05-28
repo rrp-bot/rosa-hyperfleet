@@ -199,7 +199,7 @@ ephemeral-collect-logs: ## Collect logs from an ephemeral env (CLUSTER=rc|mc)
 # Integration Environment
 # =============================================================================
 # Thin wrappers around scripts/dev/int-env.sh.
-# Uses AWS profiles with SAML auth (account IDs from .accounts-int.json).
+# Uses AWS profiles with SAML auth (account IDs from rosa-regional-platform-internal or RRP_ACCOUNTS_INT).
 
 int-shell: ## Interactive shell for Platform API access (int)
 	@./scripts/dev/int-env.sh shell

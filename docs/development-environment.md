@@ -20,7 +20,14 @@ Port forwarding additionally requires `aws` and `lsof`.
 
 ### AWS Account Setup
 
-Create a `.accounts-dev.json` file in the repo root with your team's shared dev account IDs:
+By default, scripts look for account ID files in the `rosa-regional-platform-internal` sibling repo:
+
+- **Ephemeral (dev)**: `../rosa-regional-platform-internal/infra/accounts/dev/accounts.json`
+- **Integration**: `../rosa-regional-platform-internal/infra/accounts/int/accounts.json`
+
+If you have the internal repo checked out alongside this one, no extra setup is needed.
+
+To override, set the env vars `RRP_ACCOUNTS_DEV` or `RRP_ACCOUNTS_INT` to point to a different file. The expected format is:
 
 ```json
 {
@@ -32,9 +39,7 @@ Create a `.accounts-dev.json` file in the repo root with your team's shared dev 
 }
 ```
 
-This file is gitignored.
-
-For the integration environment, create `.accounts-int.json` with the same format (without `admin`).
+(Integration accounts omit `admin`.)
 
 Alternatively, set `RRP_AWS_PROFILES_PRESET=1` to skip the built-in credential setup entirely and manage your own AWS profiles (profiles must be named `rrp-ephemeral-{central,rc,mc,customer}` for ephemeral or `rrp-int-{rc,mc,customer}` for integration).
 

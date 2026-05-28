@@ -205,12 +205,17 @@ fetch_github_token() {
 
 # Create temporary AWS config with ephemeral profiles.
 setup_aws_config() {
-    load_accounts "$REPO_ROOT/.accounts-dev.json" admin central rc mc customer
+    local accounts_file="${RRP_ACCOUNTS_DEV:-${REPO_ROOT}/../rosa-regional-platform-internal/infra/accounts/dev/accounts.json}"
+    [[ -f "$accounts_file" ]] \
+        || die "Account IDs file not found: $accounts_file
+    Either clone rosa-regional-platform-internal as a sibling directory,
+    or set RRP_ACCOUNTS_DEV to point to your accounts JSON file.
+    See docs/development-environment.md for details."
+    load_accounts "$accounts_file" admin central rc mc customer
 
     if [[ -n "${RRP_AWS_PROFILES_PRESET:-}" ]]; then
         echo "Using pre-existing AWS credentials (RRP_AWS_PROFILES_PRESET)"
         export AWS_CONFIG_FILE=${AWS_CONFIG_FILE:-$HOME/.aws/config}
-        fetch_github_token
         return 0
     fi
 
@@ -248,7 +253,6 @@ duration_seconds = 3600
 AWSCFG
 
     echo "AWS config written to: $AWS_CONFIG_FILE"
-    fetch_github_token
 }
 
 # Resolve ephemeral profiles to static container credentials.
@@ -367,6 +371,7 @@ cmd_provision() {
 
     # Fetch credentials and write container config
     setup_aws_config
+    fetch_github_token
     write_eph_container_config
 
     # Print summary
@@ -461,6 +466,7 @@ cmd_teardown() {
 
     # Fetch credentials and write container config
     setup_aws_config
+    fetch_github_token
     write_eph_container_config
 
     # Build --eph-branch flag if available (needed after swap-branch)
@@ -520,6 +526,7 @@ cmd_resync() {
 
     # Fetch credentials and write container config
     setup_aws_config
+    fetch_github_token
     write_eph_container_config
 
     # Build --eph-branch flag if available (needed after swap-branch)

@@ -8,7 +8,7 @@
 # Typically invoked via Makefile targets (make int-shell, etc.)
 #
 # The script constructs a temporary AWS config with the int profiles.
-# Account IDs are loaded from .accounts-int.json in the repo root.
+# Account IDs default to rosa-regional-platform-internal; override with RRP_ACCOUNTS_INT.
 
 set -euo pipefail
 
@@ -81,7 +81,13 @@ profile_for() {
 
 # Create temporary AWS config with int profiles.
 setup_aws_config() {
-    load_accounts "$REPO_ROOT/.accounts-int.json" central rc mc customer
+    local accounts_file="${RRP_ACCOUNTS_INT:-${REPO_ROOT}/../rosa-regional-platform-internal/infra/accounts/int/accounts.json}"
+    [[ -f "$accounts_file" ]] \
+        || die "Account IDs file not found: $accounts_file
+    Either clone rosa-regional-platform-internal as a sibling directory,
+    or set RRP_ACCOUNTS_INT to point to your accounts JSON file.
+    See docs/development-environment.md for details."
+    load_accounts "$accounts_file" central rc mc customer
     init_aws_config
 
     cat > "$AWS_CONFIG_FILE" <<AWSCFG
