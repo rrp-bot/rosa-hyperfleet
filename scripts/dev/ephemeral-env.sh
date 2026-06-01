@@ -205,6 +205,12 @@ fetch_github_token() {
 
 # Create temporary AWS config with ephemeral profiles.
 setup_aws_config() {
+    if [[ -n "${RRP_AWS_PROFILES_PRESET:-}" ]]; then
+        echo "Using pre-existing AWS credentials (RRP_AWS_PROFILES_PRESET)"
+        export AWS_CONFIG_FILE=${AWS_CONFIG_FILE:-$HOME/.aws/config}
+        return 0
+    fi
+
     local accounts_file="${RRP_ACCOUNTS_DEV:-${REPO_ROOT}/../rosa-regional-platform-internal/infra/accounts/dev/accounts.json}"
     [[ -f "$accounts_file" ]] \
         || die "Account IDs file not found: $accounts_file
@@ -212,12 +218,6 @@ setup_aws_config() {
     or set RRP_ACCOUNTS_DEV to point to your accounts JSON file.
     See docs/development-environment.md for details."
     load_accounts "$accounts_file" admin central rc mc customer
-
-    if [[ -n "${RRP_AWS_PROFILES_PRESET:-}" ]]; then
-        echo "Using pre-existing AWS credentials (RRP_AWS_PROFILES_PRESET)"
-        export AWS_CONFIG_FILE=${AWS_CONFIG_FILE:-$HOME/.aws/config}
-        return 0
-    fi
 
     init_aws_config
 
