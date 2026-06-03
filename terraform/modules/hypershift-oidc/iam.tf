@@ -54,6 +54,26 @@ resource "aws_iam_role_policy" "hypershift_operator_s3" {
   })
 }
 
+resource "aws_iam_role_policy" "hypershift_operator_kms" {
+  count = var.oidc_kms_key_arn != "" ? 1 : 0
+  name  = "${var.cluster_id}-hypershift-operator-kms"
+  role  = aws_iam_role.hypershift_operator.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect = "Allow"
+      Action = [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:GenerateDataKey*",
+        "kms:DescribeKey",
+      ]
+      Resource = var.oidc_kms_key_arn
+    }]
+  })
+}
+
 resource "aws_iam_role_policy" "hypershift_operator_ec2" {
   name = "${var.cluster_id}-hypershift-operator-ec2"
   role = aws_iam_role.hypershift_operator.id

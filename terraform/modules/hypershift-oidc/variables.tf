@@ -47,6 +47,12 @@ variable "oidc_bucket_region" {
   }
 }
 
+variable "oidc_kms_key_arn" {
+  description = "KMS key ARN used for OIDC S3 bucket encryption (owned by the Regional Cluster)"
+  type        = string
+  default     = ""
+}
+
 variable "oidc_cloudfront_domain" {
   description = "CloudFront domain name for the OIDC issuer URL (owned by the Regional Cluster)"
   type        = string

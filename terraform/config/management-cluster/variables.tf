@@ -125,6 +125,12 @@ variable "oidc_bucket_region" {
   default     = ""
 }
 
+variable "oidc_kms_key_arn" {
+  description = "KMS key ARN for regional OIDC S3 bucket encryption (read from RC terraform state)"
+  type        = string
+  default     = ""
+}
+
 variable "oidc_cloudfront_domain" {
   description = "CloudFront domain for the regional OIDC issuer URL (read from RC terraform state)"
   type        = string

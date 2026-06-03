@@ -92,9 +92,11 @@ resource "aws_s3_bucket_policy" "oidc" {
           "${aws_s3_bucket.oidc.arn}/*",
         ]
         Condition = {
+          "ForAnyValue:StringLike" = {
+            "aws:PrincipalOrgPaths" = "${var.mc_ou_path}*"
+          }
           StringLike = {
-            "aws:PrincipalOrgPaths" = var.mc_ou_path
-            "aws:PrincipalArn"      = "arn:*:iam::*:role/*-hypershift-operator"
+            "aws:PrincipalArn" = "arn:*:iam::*:role/*-hypershift-operator"
           }
         }
       },

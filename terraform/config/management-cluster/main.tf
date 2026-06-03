@@ -122,6 +122,7 @@ module "hypershift_oidc" {
   oidc_bucket_name       = var.oidc_bucket_name
   oidc_bucket_arn        = var.oidc_bucket_arn
   oidc_bucket_region     = var.oidc_bucket_region
+  oidc_kms_key_arn       = var.oidc_kms_key_arn
   oidc_cloudfront_domain = var.oidc_cloudfront_domain
 }
 
