@@ -42,17 +42,35 @@ resource "aws_kms_key" "oidc" {
           "kms:Encrypt",
           "kms:Decrypt",
           "kms:GenerateDataKey*",
-          "kms:DescribeKey",
         ]
         Resource = "*"
         Condition = {
+          "ForAnyValue:StringLike" = {
+            "aws:PrincipalOrgPaths" = "${var.mc_ou_path}*"
+          }
           StringLike = {
-            "aws:PrincipalOrgPaths"            = var.mc_ou_path
             "aws:PrincipalArn"                 = "arn:*:iam::*:role/*-hypershift-operator"
             "kms:EncryptionContext:aws:s3:arn" = "arn:${data.aws_partition.current.partition}:s3:::${local.bucket_name}*"
           }
           StringEquals = {
             "kms:ViaService" = "s3.${data.aws_region.current.name}.amazonaws.com"
+          }
+        }
+      },
+      {
+        Sid    = "AllowManagementClusterDescribeKey"
+        Effect = "Allow"
+        Principal = {
+          AWS = "*"
+        }
+        Action   = "kms:DescribeKey"
+        Resource = "*"
+        Condition = {
+          "ForAnyValue:StringLike" = {
+            "aws:PrincipalOrgPaths" = "${var.mc_ou_path}*"
+          }
+          StringLike = {
+            "aws:PrincipalArn" = "arn:*:iam::*:role/*-hypershift-operator"
           }
         }
       }
