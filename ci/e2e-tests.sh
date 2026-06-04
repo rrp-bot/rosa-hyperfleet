@@ -63,29 +63,39 @@ CLI_REF="${CLI_REF:-main}"
 CLI_REPO="${CLI_REPO:-https://github.com/openshift-online/rosa-regional-platform-cli.git}"
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "${WORK_DIR}"' EXIT
+echo ""
+echo "=== API Tests ==="
+echo "===           ==="
+echo "Repo: ${E2E_REPO} - Branch: ${E2E_REF}"
+echo ""
 git clone --depth 1 --branch "${E2E_REF}" \
   "${E2E_REPO}" "${WORK_DIR}/api"
 cd "${WORK_DIR}/api"
 
+echo "===           ==="
+echo "working commit $(git rev-parse HEAD)"
+
 go install github.com/onsi/ginkgo/v2/ginkgo@v2.28.1
 export PATH="$(go env GOPATH)/bin:${PATH}"
 
-rc=0
-make test-e2e || rc=$?
+platform_rc=0
+hcp_rc=0
+monitoring_rc=0
+make test-e2e-api || platform_rc=$?
 
 # Get regional account ID for CLI tests
 if [[ -z "${E2E_ACCOUNT_ID:-}" ]]; then
   export E2E_ACCOUNT_ID="$(aws sts get-caller-identity --query Account --output text)"
   echo "Regional account ID: ${E2E_ACCOUNT_ID}"
-fi 
+fi
 
 # --- HCP Creation E2E Tests ---
 # Customer credentials are supplied via the rrp-customer AWS profile (CUSTOMER_AWS_PROFILE).
 # Subprocesses use credential_process auto-refresh, avoiding the 15-minute STS TTL cliff.
 # Only run if the platform API tests passed.
 _have_customer_creds=false
-if [[ $rc -ne 0 ]]; then
-  echo "Skipping HCP creation tests — platform API tests failed (exit code: $rc)"
+if [[ $platform_rc -ne 0 ]]; then
+  echo "Skipping HCP creation & Platform Monitoring tests — platform API tests failed (exit code: $platform_rc)"
 elif aws configure export-credentials --profile rrp-customer --format process &>/dev/null; then
   export CUSTOMER_AWS_PROFILE="rrp-customer"
   echo "Customer profile rrp-customer is available"
@@ -130,12 +140,23 @@ if [[ "$_have_customer_creds" == "true" ]]; then
     echo "HCP creation test completed for: ${HCP_CLUSTER_NAME}"
   }
 
-  test_hcp_creation || rc=$?
+  test_hcp_creation || hcp_rc=$?
+
+  echo ""
+  echo "=== Platform Monitoring Tests ==="
+  echo ""
+  make test-e2e-platform-monitoring || monitoring_rc=$?
 fi
 
-if [[ $rc -ne 0 ]]; then
+if [[ $platform_rc -ne 0 ]] || [[ $hcp_rc -ne 0 ]] || [[ $monitoring_rc -ne 0 ]]; then
     echo ""
-    echo "E2E tests failed (exit code: $rc). Collecting cluster logs..."
+    if [[ $hcp_rc -ne 0 ]]; then
+        echo "HCP E2E tests failed (exit code: $hcp_rc)."
+    fi
+    if [[ $monitoring_rc -ne 0 ]]; then
+        echo "Monitoring E2E tests failed (exit code: $monitoring_rc)."
+    fi
+    echo "Collecting cluster logs..."
 
     # Pre-existing environment (integration): bare cluster names (regional, mc01)
     # Ephemeral environment: ci_prefix-based names derived from BUILD_ID
@@ -158,5 +179,5 @@ if [[ $rc -ne 0 ]]; then
         S3_ONLY=true \
             "${REPO_ROOT}/scripts/dev/collect-cluster-logs.sh" || true
     fi
-    exit $rc
+    exit 1
 fi
