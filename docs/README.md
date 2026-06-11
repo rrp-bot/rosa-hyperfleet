@@ -39,11 +39,13 @@ Detailed architecture and rationale for key technical decisions:
 
 ### How-To Guides
 
-| Document                                                             | Topic                                   |
-| -------------------------------------------------------------------- | --------------------------------------- |
-| [Provision a New Environment](environment-provisioning.md)           | Pipeline-based environment provisioning |
-| [Provisioning a Development Environment](development-environment.md) | Ephemeral dev environments              |
-| [Adding Alerting Rules](adding-alerting-rules.md)                    | Platform alerting and recording rules   |
+| Document                                                             | Topic                                        |
+| -------------------------------------------------------------------- | -------------------------------------------- |
+| [Provision a New Environment](environment-provisioning.md)           | Pipeline-based environment provisioning      |
+| [Provisioning a Development Environment](development-environment.md) | Ephemeral dev environments                   |
+| [Provision a Hosted Cluster](hostedcluster-provisioning.md)          | Create and access a ROSA HCP cluster         |
+| [Hosted Cluster Teardown](hostedcluster-teardown.md)                 | Admin-only manual teardown and force cleanup |
+| [Adding Alerting Rules](adding-alerting-rules.md)                    | Platform alerting and recording rules        |
 
 ### Reference
 

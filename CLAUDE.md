@@ -106,7 +106,8 @@ docs/
 ├── FAQ.md                   # Architecture decisions Q&A
 ├── design/                  # ADRs (Architecture Decision Records)
 ├── environment-provisioning.md
-├── hostedcluster-provisioning.md
+├── hostedcluster-provisioning.md  # User-facing: create & access a hosted cluster
+├── hostedcluster-teardown.md     # Admin-only: manual teardown & force cleanup
 ├── development-environment.md
 ├── adding-component-pre-merge.md
 └── sop/                     # Standard operating procedures
