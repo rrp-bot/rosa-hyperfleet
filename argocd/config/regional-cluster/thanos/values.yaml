@@ -18,6 +18,12 @@ receive:
   replicationFactor: 1
   retention: 2h
 
+  additionalArgs:
+    - "--enable-auto-gomemlimit"
+    - "--auto-gomemlimit.ratio=0.9"
+    - "--tsdb.wal-compression"
+    - "--tsdb.too-far-in-future.time-window=5m"
+
   resources:
     requests:
       cpu: 700m
@@ -27,6 +33,9 @@ receive:
 
   router:
     replicas: 1
+    additionalArgs:
+      - "--receive.default-tenant-id=default-tenant"
+      - "--receive.write-request-limits.max-concurrency=20"
     resources:
       requests:
         cpu: 250m

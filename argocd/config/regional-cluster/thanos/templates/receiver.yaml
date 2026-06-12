@@ -24,6 +24,12 @@ spec:
             memory: {{ .Values.receive.resources.requests.memory }}
           limits:
             memory: {{ .Values.receive.resources.limits.memory }}
+        {{- if .Values.receive.additionalArgs }}
+        additionalArgs:
+          {{- range .Values.receive.additionalArgs }}
+          - {{ . | quote }}
+          {{- end }}
+        {{- end }}
         storage:
           size: {{ .Values.receive.storage.size }}
           {{- if .Values.receive.storage.storageClass }}
@@ -38,8 +44,12 @@ spec:
         memory: {{ .Values.receive.router.resources.requests.memory }}
       limits:
         memory: {{ .Values.receive.router.resources.limits.memory }}
+    {{- if .Values.receive.router.additionalArgs }}
     additionalArgs:
-      - "--receive.default-tenant-id=default-tenant"
+      {{- range .Values.receive.router.additionalArgs }}
+      - {{ . | quote }}
+      {{- end }}
+    {{- end }}
     externalLabels:
       receive: "true"
       region: {{ .Values.global.aws_region | quote }}
