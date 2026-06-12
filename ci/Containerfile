@@ -169,9 +169,9 @@ ENV UV_NO_PROGRESS=true
 ENV GOPATH=/tmp/gopath
 ENV GOCACHE=/tmp/.cache/go-build
 
-# Python packages (awscurl for API Gateway testing)
+# Python packages (awscurl for API Gateway testing, pyyaml for CI override parsing)
 RUN if [ -n "${PROXY_CA_CERT}" ]; then \
-        uv pip install --system --native-tls awscurl; \
+        uv pip install --system --native-tls awscurl pyyaml; \
     else \
-        uv pip install --system awscurl; \
+        uv pip install --system awscurl pyyaml; \
     fi
