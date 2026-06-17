@@ -13,11 +13,20 @@ spec:
     defaultObjectStorageConfig:
       name: {{ .Values.objectStore.secretName }}
       key: objstore.yml
+    {{- if .Values.receive.additionalArgs }}
+    additionalArgs:
+      {{- range .Values.receive.additionalArgs }}
+      - {{ . | quote }}
+      {{- end }}
+    {{- end }}
     hashrings:
       - name: default
         replicas: {{ .Values.receive.replicas }}
         tsdbConfig:
           retention: {{ .Values.receive.retention }}
+        {{- if .Values.receive.tooFarInFutureTimeWindow }}
+        tooFarInFutureTimeWindow: {{ .Values.receive.tooFarInFutureTimeWindow }}
+        {{- end }}
         resourceRequirements:
           requests:
             cpu: {{ .Values.receive.resources.requests.cpu }}
@@ -38,8 +47,12 @@ spec:
         memory: {{ .Values.receive.router.resources.requests.memory }}
       limits:
         memory: {{ .Values.receive.router.resources.limits.memory }}
+    {{- if .Values.receive.router.additionalArgs }}
     additionalArgs:
-      - "--receive.default-tenant-id=default-tenant"
+      {{- range .Values.receive.router.additionalArgs }}
+      - {{ . | quote }}
+      {{- end }}
+    {{- end }}
     externalLabels:
       receive: "true"
       region: {{ .Values.global.aws_region | quote }}
