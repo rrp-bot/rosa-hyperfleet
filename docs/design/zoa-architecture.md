@@ -27,58 +27,89 @@ ZOA eliminates all of these by making every operational action:
 
 ### Component Overview
 
-```
-+-------------------+        +----------------------------------------------------+
-|  rosa-boundary    |        |              Regional Cluster (RC)                 |
-|  (ECS Fargate)    |        |                                                    |
-|                   |        |   +------------------+                             |
-| +---------------+ | SigV4  |   |   API Gateway    |                             |
-| |   ZOA CLI     |-+------->|   +--------+---------+                             |
-| +---------------+ |  auth  |            |                                       |
-+-------------------+        |            v                                       |
-                             |   +---------------------------------------------+  |
-                             |   | Platform API (ZOA handlers)                 |  |
-                             |   |                                             |  |
-                             |   | +-----------+ +------------+ +-----------+  |  |
-                             |   | |Reconciler | | DynamoDB   | | S3 Bucket |<-+--+----------
-                             |   | |(5s loop)  | |(exec+audit)| |(artifacts)|  |  |         +
-                             |   | +-----------+ +------------+ +-----------+  |  |         |
-                             |   +----------------------+----------------------+  |         |
-                             |                          |                         |         |
-                             |                          v                         |         |
-                             |   +------------------+  +------------------+       |         |
-                             |   | Maestro Agent    |<-| Maestro Server   |       |         |
-                             |   | (RC-targeted TAs)|  | (gRPC + MQTT)    |       |         |
-                             |   +------------------+  +--------+---------+       |         |
-                             +----------------------------------+-----------------+         |
-                                                                |                           |
-                                                                | MQTT (no direct network)  | S3 upload (RC)
-                                                                |                           |
-                             +----------------------------------+------------------+        |
-                             |   Management Cluster (MC)        v                  |        |
-                             |                         +------------------+        |        |
-                             |                         | Maestro Agent    |        |        |
-                             |                         | (applies MW)     |        |        |
-                             |                         +--------+---------+        |        |
-                             |   Namespace: zoa-jobs            |                  |        |
-                             |   +------------------------------+------------+     |        |
-                             |   |                              v            |     |        |
-                             |   | +-----------------+ +--------------+      |     |        |
-                             |   | | Runner Job      | | Uploader Job |------+-----+--------+
-                             |   | | zoa-<exec-id>   | | zoa-<exec-id>|      |     |
-                             |   | +--------+--------+ +------^-------+      |     |
-                             |   |          | writes          | reads        |     |
-                             |   |          v                 |              |     |
-                             |   |     +----------------------------+        |     |
-                             |   |     | ConfigMap (scripts+output) |        |     |
-                             |   |     +----------------------------+        |     |
-                             |   |                                           |     |
-                             |   | +------------+ +----------------------+   |     |
-                             |   | |SA (per-exec)| |Role/ClusterRole     |   |     |
-                             |   | |SA (uploader)| |(per-execution RBAC) |   |     |
-                             |   | +------------+ +----------------------+   |     |
-                             |   +-------------------------------------------+     |
-                             +----------------------------------------------------+
+```mermaid
+graph TB
+    classDef awsAccount fill:#fefce8,stroke:#a16207,stroke-width:2px,stroke-dasharray: 8 4
+    classDef cluster fill:#f9f9f9,stroke:#333,stroke-width:2px,stroke-dasharray: 5 5
+    classDef jobsNamespace fill:#edf2f7,stroke:#4a5568,stroke-width:2px
+    classDef component fill:#fff,stroke:#3182ce,stroke-width:1px
+    classDef storage fill:#fff,stroke:#dd6b20,stroke-width:1px
+
+    subgraph AWSrosa ["AWS Account"]
+        subgraph rosa ["rosa-boundary (ECS Fargate)"]
+            CLI[ZOA CLI]:::component
+        end
+    end
+
+    CLI -->|SigV4 auth| APIGW
+
+    subgraph grid [" "]
+        direction LR
+
+        subgraph AWSrc ["AWS Account — Regional"]
+            direction TB
+            DynamoExec[DynamoDB<br/>executions]:::storage
+            DynamoAudit[DynamoDB<br/>audit log]:::storage
+            S3[S3 Bucket<br/>artifacts]:::storage
+
+            subgraph RC ["Regional Cluster (RC)"]
+                direction TB
+                APIGW[API Gateway]:::component
+
+                subgraph PAPI [Platform API — ZOA handlers]
+                    direction TB
+                    Reconciler[Reconciler<br/>5s loop]:::component
+                end
+
+                APIGW --> PAPI
+
+                MaestroServer[Maestro Server<br/>gRPC + MQTT]:::component
+                MaestroAgentRC[Maestro Agent<br/>RC-targeted TAs]:::component
+
+                PAPI --> MaestroServer
+                MaestroServer <--> MaestroAgentRC
+            end
+
+            PAPI -.-> DynamoExec
+            PAPI -.-> DynamoAudit
+        end
+
+        subgraph AWSmc ["AWS Account — Management"]
+            direction TB
+
+            subgraph MC ["Management Cluster (MC)"]
+                direction TB
+                MaestroAgentMC[Maestro Agent<br/>applies MW]:::component
+
+                subgraph NS ["Namespace: zoa-jobs"]
+                    direction TB
+                    CMScripts[ConfigMap<br/>shared scripts]:::storage
+                    Runner[Runner Job<br/>zoa-exec-id]:::component
+                    Uploader[Uploader Job<br/>zoa-exec-id]:::component
+                    CMOutput[ConfigMap<br/>output]:::storage
+                    SA[SA per-exec<br/>SA uploader]:::component
+                    RBAC[Role / ClusterRole<br/>per-execution RBAC]:::component
+
+                    CMScripts -->|mounted by| Runner
+                    CMScripts -->|mounted by| Uploader
+                    Uploader -.->|waits until completion| Runner
+                    Runner -->|writes final output| CMOutput
+                    Uploader -->|reads after Runner exits| CMOutput
+                end
+
+                MaestroAgentMC -->|applies manifests| NS
+            end
+        end
+    end
+
+    MaestroServer -->|"MQTT (no direct network)"| MaestroAgentMC
+    Uploader -->|S3 output upload| S3
+
+    class rosa cluster
+    class AWSrosa,AWSrc,AWSmc awsAccount
+    class RC,MC cluster
+    class NS jobsNamespace
+    style grid fill:none,stroke:none
 ```
 
 ### Component Responsibilities
