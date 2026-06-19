@@ -30,6 +30,8 @@
 
 set -uo pipefail
 
+export AWS_REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo "us-east-1")}}"
+
 RC_NAMESPACES="all"
 MC_NAMESPACES="all"
 
@@ -69,6 +71,10 @@ use_profile() {
         management) export AWS_PROFILE="rrp-mc" ;;
         *) echo "  Unknown account type: $account_type"; return 1 ;;
     esac
+    if ! aws sts get-caller-identity --query Account --output text > /dev/null 2>&1; then
+        echo "  ERROR: AWS profile '${AWS_PROFILE}' failed authentication (credentials may have expired)"
+        return 1
+    fi
 }
 
 # Ensure the log-collection S3 bucket exists (account-regional namespace).
@@ -102,7 +108,12 @@ ensure_logs_bucket() {
 # Outputs one cluster_id per line (e.g. "eph-a1b2c3-mc01", "mc01").
 discover_mc_clusters() {
     local prefix="$1"
-    aws ecs list-clusters --query 'clusterArns[*]' --output text 2>/dev/null \
+    local cluster_output
+    cluster_output=$(aws ecs list-clusters --query 'clusterArns[*]' --output text 2>&1) || {
+        echo "  ERROR: aws ecs list-clusters failed: $cluster_output" >&2
+        return 1
+    }
+    echo "$cluster_output" \
         | tr '\t' '\n' \
         | grep -oE "[^/]+$" \
         | grep "^${prefix}mc.*-bastion$" \
@@ -126,7 +137,7 @@ collect_logs_for_cluster() {
     local account_id region
     account_id=$(aws sts get-caller-identity --query Account --output text) \
         || { echo "  Could not determine account ID"; return 1; }
-    region="${AWS_REGION:-${AWS_DEFAULT_REGION:-$(aws configure get region 2>/dev/null || echo "us-east-1")}}"
+    local region="${AWS_REGION}"
     local s3_bucket="bastion-log-collection-${account_id}-${region}-an"
 
     ensure_logs_bucket "$account_id" "$region"
