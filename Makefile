@@ -22,9 +22,14 @@ $(LOCALBIN):
 
 install-hooks: ## Install git hooks into this repo (.git/hooks/)
 	@echo "Installing git hooks..."
-	@cp scripts/hooks/pre-commit .git/hooks/pre-commit
-	@chmod +x .git/hooks/pre-commit
-	@echo "   pre-commit hook installed (.git/hooks/pre-commit)"
+	@hooks_dir="$$(git rev-parse --git-path hooks)"; \
+		mkdir -p "$$hooks_dir"; \
+		for hook in scripts/hooks/*; do \
+			name=$$(basename "$$hook"); \
+			cp "$$hook" "$$hooks_dir/$$name"; \
+			chmod +x "$$hooks_dir/$$name"; \
+			echo "   $$name hook installed ($$hooks_dir/$$name)"; \
+		done
 
 $(LOCALBIN)/promtool: | $(LOCALBIN)
 	@echo "📥 Installing promtool $(PROMTOOL_VERSION)..."
