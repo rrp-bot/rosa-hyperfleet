@@ -1,4 +1,4 @@
-.PHONY: help terraform-fmt terraform-init terraform-validate terraform-upgrade terraform-output-management terraform-output-regional helm-lint check-rendered-files promtool-test ephemeral-provision ephemeral-teardown ephemeral-resync ephemeral-list ephemeral-shell ephemeral-bastion-rc ephemeral-bastion-mc ephemeral-port-forward-rc ephemeral-port-forward-mc ephemeral-port-forward-rc-all ephemeral-port-forward-mc-all ephemeral-e2e ephemeral-collect-logs int-shell int-bastion-rc int-bastion-mc int-port-forward-rc int-port-forward-mc int-port-forward-rc-all int-port-forward-mc-all int-e2e int-collect-logs check-docs check-default-tags pre-push render
+.PHONY: help terraform-fmt terraform-init terraform-validate terraform-upgrade terraform-output-management terraform-output-regional helm-lint check-rendered-files promtool-test ephemeral-provision ephemeral-teardown ephemeral-resync ephemeral-list ephemeral-shell ephemeral-bastion-rc ephemeral-bastion-mc ephemeral-port-forward-rc ephemeral-port-forward-mc ephemeral-port-forward-rc-all ephemeral-port-forward-mc-all ephemeral-e2e ephemeral-collect-logs int-shell int-bastion-rc int-bastion-mc int-port-forward-rc int-port-forward-mc int-port-forward-rc-all int-port-forward-mc-all int-e2e int-collect-logs check-docs check-default-tags pre-push render install-hooks
 
 # =============================================================================
 # Local tool management
@@ -10,14 +10,21 @@ UNAME_M      := $(shell uname -m)
 UNAME_S      := $(shell uname -s | tr '[:upper:]' '[:lower:]')
 ARCH         := $(if $(filter x86_64,$(UNAME_M)),amd64,$(if $(filter aarch64 arm64,$(UNAME_M)),arm64,$(error Unsupported architecture: $(UNAME_M))))
 
+LEAKTK_VERSION ?= 0.3.3
+
 PROMTOOL_VERSION ?= 3.4.1
-PROMTOOL         ?= $(or $(shell command -v promtool 2>/dev/null),$(LOCALBIN)/promtool)
 
 YQ_VERSION ?= v4.44.3
 YQ         ?= $(or $(shell command -v yq 2>/dev/null),$(LOCALBIN)/yq)
 
 $(LOCALBIN):
 	mkdir -p $(LOCALBIN)
+
+install-hooks: ## Install git hooks into this repo (.git/hooks/)
+	@echo "Installing git hooks..."
+	@cp scripts/hooks/pre-commit .git/hooks/pre-commit
+	@chmod +x .git/hooks/pre-commit
+	@echo "   pre-commit hook installed (.git/hooks/pre-commit)"
 
 $(LOCALBIN)/promtool: | $(LOCALBIN)
 	@echo "📥 Installing promtool $(PROMTOOL_VERSION)..."

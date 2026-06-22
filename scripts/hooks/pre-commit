@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+# pre-commit hook: installs leaktk v0.3.3 if not present, then runs secrets scan.
+#
+# leaktk is installed to <repo-root>/bin/leaktk so it stays project-local and
+# is consistent with the other tool-management patterns in this repo's Makefile.
+#
+# Install this hook by running: make install-hooks
+
+set -euo pipefail
+
+LEAKTK_VERSION="0.3.3"
+
+# Resolve the repo root regardless of where git invokes the hook from.
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+LOCALBIN="${REPO_ROOT}/bin"
+LEAKTK="${LOCALBIN}/leaktk"
+
+install_leaktk() {
+  local os arch asset url
+
+  os="$(uname -s | tr '[:upper:]' '[:lower:]')"
+  case "$(uname -m)" in
+    x86_64)           arch="x86_64" ;;
+    aarch64 | arm64)  arch="arm64"  ;;
+    *)
+      echo "[leaktk] Unsupported architecture: $(uname -m)" >&2
+      exit 1
+      ;;
+  esac
+
+  asset="leaktk-${LEAKTK_VERSION}-${os}-${arch}.tar.xz"
+  url="https://github.com/leaktk/leaktk/releases/download/v${LEAKTK_VERSION}/${asset}"
+
+  echo "[leaktk] Installing leaktk v${LEAKTK_VERSION} to ${LEAKTK}..." >&2
+  mkdir -p "${LOCALBIN}"
+
+  local tmpdir="${TMPDIR:-/tmp}/leaktk-install-$$"
+  mkdir -p "${tmpdir}"
+  # shellcheck disable=SC2064
+  trap "rm -rf '${tmpdir}'" EXIT
+
+  if command -v curl >/dev/null 2>&1; then
+    curl -fsSL "${url}" -o "${tmpdir}/${asset}"
+  elif command -v wget >/dev/null 2>&1; then
+    wget -q "${url}" -O "${tmpdir}/${asset}"
+  else
+    echo "[leaktk] Neither curl nor wget found; cannot download leaktk." >&2
+    exit 1
+  fi
+
+  tar -xJf "${tmpdir}/${asset}" -C "${tmpdir}"
+  install -m 0755 "${tmpdir}/leaktk" "${LEAKTK}"
+  echo "[leaktk] leaktk v${LEAKTK_VERSION} installed." >&2
+}
+
+# Check whether the correct version is already installed.
+if [[ ! -x "${LEAKTK}" ]] || ! "${LEAKTK}" version 2>/dev/null | grep -qF "${LEAKTK_VERSION}"; then
+  install_leaktk
+fi
+
+# Run the pre-commit secrets scan.
+exec "${LEAKTK}" hook git.pre-commit
