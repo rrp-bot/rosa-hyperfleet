@@ -27,11 +27,13 @@ Query each repository for PRs merged within the last 7 days (168 hours). Exclude
 
 **Implementation:**
 ```bash
+BOT_USER=$(gh api user --jq .login)
 gh pr list --repo openshift-online/<repo> \
   --state merged \
   --search "merged:>=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%S)" \
   --limit 50 \
-  --json number,title,author,files
+  --json number,title,author,files \
+  | jq --arg user "$BOT_USER" 'map(select(.author.login != $user))'
 ```
 
 **Note:** If no PRs found, continue to Phase 3 anyway (don't exit yet - we still need to validate overall doc health).
@@ -75,15 +77,17 @@ cd <repo>
 
 #### 4.2: Inventory All Documentation
 
-Scan each repository for all documentation files (following `.claude/agents/documentation-updater.md` approach):
+Scan each repository for all files that may contain documentation or descriptive text:
 
-**Documentation locations:**
-- `docs/` — architecture, design decisions, environment provisioning, FAQ
-- `README.md` files at any level
-- `CLAUDE.md`, `AGENTS.md` — developer tooling and security guidelines
+**Documentation files:**
+- All `*.md` markdown files across the repository (use `find . -name '*.md'`)
 - `.claude/agents/` — agent prompt definitions
-- `argocd/README.md`, `terraform/README.md` — component-level docs
-- `ci/` or `.github/workflows/` — CI configuration documentation
+
+**Other repo files with text content:**
+- YAML files (`*.yaml`, `*.yml`) — comments, descriptions, annotations
+- Terraform files (`*.tf`) — comments, descriptions
+- Shell scripts (`*.sh`) — comments, usage text
+- CI configuration (`.github/workflows/`, `.tekton/`) — comments, step descriptions
 
 **Ignore:**
 - `docs/presentations/` — historical, no longer maintained
@@ -250,27 +254,33 @@ Follow these rules:
 
 **Validation commands:**
 ```bash
+# Scan only the files modified in this update
+MODIFIED_FILES=$(git diff --name-only HEAD)
+
 # Check for IP addresses
-grep -rE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' docs/ CLAUDE.md ci/ 2>/dev/null || true
+echo "$MODIFIED_FILES" | xargs grep -lE '\b([0-9]{1,3}\.){3}[0-9]{1,3}\b' 2>/dev/null || true
 
 # Check for AWS account numbers (12 digits)
-grep -rE '\b[0-9]{12}\b' docs/ CLAUDE.md ci/ 2>/dev/null || true
+echo "$MODIFIED_FILES" | xargs grep -lE '\b[0-9]{12}\b' 2>/dev/null || true
 
 # Check for AWS access keys
-grep -rE 'AKIA[0-9A-Z]{16}' docs/ CLAUDE.md ci/ 2>/dev/null || true
+echo "$MODIFIED_FILES" | xargs grep -lE 'AKIA[0-9A-Z]{16}' 2>/dev/null || true
 
 # Check for private IP ranges
-grep -rE '\b(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)' docs/ CLAUDE.md ci/ 2>/dev/null || true
+echo "$MODIFIED_FILES" | xargs grep -lE '\b(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)' 2>/dev/null || true
 
 # Check for internal hostnames
-grep -rE '\.internal\b|\.corp\b' docs/ CLAUDE.md ci/ 2>/dev/null || true
+echo "$MODIFIED_FILES" | xargs grep -lE '\.internal\b|\.corp\b' 2>/dev/null || true
 ```
 
+**CRITICAL: Do NOT commit or push if sensitive data is found.** The repository is public — any sensitive data pushed to GitHub is immediately exposed.
+
 **If sensitive data is found:**
-1. **Remove or redact** the sensitive information
-2. **Replace with placeholders** or generic examples
-3. **Document the pattern** if it helps understanding (e.g., "use format: `<aws-account-id>`")
+1. **Stop** — do not proceed with commit or push
+2. **Remove or redact** the sensitive information in the modified files
+3. **Replace with placeholders** or generic examples (e.g., `<aws-account-id>`, `<ip-address>`, `example.com`)
 4. **Re-run the validation** to ensure all instances are cleaned
+5. **Only proceed with commit/push after the re-validation passes clean**
 
 **Step 4: Technical Validation**
 ```bash

@@ -1,6 +1,6 @@
 # Scheduled report: ROSA HyperFleet CI daily health report
 
-You are running a **cron** scheduled task that produces a daily CI health report for ROSA HyperFleet jobs. Keep the report **as concise as possible** to minimize channel noise. When everything is healthy, a one-liner is fine. Only expand into detail when something needs attention.
+You are running a **cron** scheduled task that produces a daily CI health report for ROSA HyperFleet jobs. Keep the report **as concise as possible** to minimize channel noise. When everything is healthy, keep the summary concise, but still use the standard report structure. Only expand into detail when something needs attention.
 
 ## Goal
 
@@ -33,7 +33,21 @@ If the fetch fails, fall back to these job names:
 
 ### 2. Collect build history (last 10 runs)
 
-For each job, collect the **last 10 completed job runs** (exclude PENDING). Use Prow CI tools (`search_prow_jobs`, `query_prowjobs`, etc.) or `fetch_web_content` on the job-history page.
+For each job, collect the **last 10 completed job runs** for the trend table. Use Prow CI tools (`search_prow_jobs`, `query_prowjobs`, etc.) or `fetch_web_content` on the job-history page.
+
+**Same-day reporting rule:** The "Latest Run Status" section must report **today's run** for each job. Do not fall back to a previous day's completed run for the latest status. Both jobs must be reported from the same day (today).
+
+**Job status values:** Report the actual state of today's run:
+- **passing** — today's run completed successfully
+- **failing** — today's run completed with failures
+- **running** — today's run is currently in progress
+- **scheduled** — today's run is queued but not yet started
+- **no run today** — no run was triggered today
+
+**Retry for in-progress jobs:** If today's run for any tracked job is in a `scheduled` or `running` state:
+1. Wait **10 minutes** and re-check the job status
+2. Repeat up to **3 times** (30 minutes maximum wait)
+3. After 30 minutes, report the current state as-is (e.g., "running" if still in progress)
 
 **Important:** Track each of the last 10 runs with their dates:
 - For each run, record: date, pass/fail status, build ID
@@ -55,21 +69,24 @@ If Prow tools don't return historical build data directly, use `fetch_web_conten
 - Use monospace formatting for alignment
 
 **Table format example:**
-```
+```text
               Jun10 Jun11 Jun12 Jun13 Jun14 Jun15 Jun16 Jun17 Jun18 Jun19
 ephemeral:     ✅    ✅    ✅    ✅    ✅    ✅    ✅    ✅    ✅    ✅   10/10 (100%)
 integration:   ✅    ✅    ❌    ✅    ✅    ✅    ✅    ✅    ❌    ❌    7/10 (70%)
 ```
 
-**Overall CI health** (based on number of jobs passing out of 2 total):
-- :large_green_circle: Both jobs passing (2/2) - both have most recent run passed
-- :large_yellow_circle: One job passing, one failing (1/2) - one recent run passed, one failed
-- :red_circle: Both jobs failing (0/2) - both recent runs failed
-- :white_circle: No data available
+**Overall CI health** (based on today's run status for each job):
+- :large_green_circle: Both jobs passing (2/2) - both today's runs completed successfully
+- :large_yellow_circle: Mixed status (1/2) - one passing, one failing/running/scheduled
+- :red_circle: Both jobs failing (0/2) - both today's runs failed
+- :hourglass_flowing_sand: Pending — one or both jobs still running/scheduled (after retries exhausted)
+- :white_circle: No runs today — no runs were triggered today for either job
 
-**Individual job health** (based on most recent run):
-- :large_green_circle: Most recent run passed
-- :red_circle: Most recent run failed
+**Individual job health** (based on today's run):
+- :large_green_circle: Today's run passed
+- :red_circle: Today's run failed
+- :hourglass_flowing_sand: Today's run is still running or scheduled (after retries exhausted)
+- :white_circle: No run triggered today
 
 ### 4. Channel response (top-level summary)
 
@@ -81,7 +98,7 @@ Post a concise summary as your channel response. This is the top-level message t
 
 **Always use this format** (regardless of whether jobs are passing or failing):
 
-```
+```text
 %OVERALL_EMOJI% *ROSA HyperFleet CI Daily Health -- %DATE%*
 
 *Latest Run Status:*
@@ -99,10 +116,10 @@ _<https://prow.ci.openshift.org|Prow Dashboard>_
 ```
 
 **Field values:**
-- `%OVERALL_EMOJI%`: :large_green_circle: if 2/2 passing, :large_yellow_circle: if 1/2 passing, :red_circle: if 0/2 passing
-- `%JOB_EMOJI%`: :large_green_circle: if latest run passed, :red_circle: if latest run failed
-- `%STATUS%`: "passing" or "failing" based on the **latest completed run** (not the last failing run)
-- `%JOB_RUN_URL%`: Link to the latest completed Prow job run
+- `%OVERALL_EMOJI%`: :large_green_circle: if 2/2 passing, :large_yellow_circle: if mixed, :red_circle: if 0/2 passing, :hourglass_flowing_sand: if pending after retries, :white_circle: if no runs today
+- `%JOB_EMOJI%`: :large_green_circle: if today's run passed, :red_circle: if failed, :hourglass_flowing_sand: if running/scheduled, :white_circle: if no run today
+- `%STATUS%`: "passing", "failing", "running", "scheduled", or "no run today" based on **today's run** status
+- `%JOB_RUN_URL%`: Link to today's Prow job run (or latest run link if no run today)
 
 **Format instructions:**
 - Use monospace/code block formatting (triple backticks) for the trend table
@@ -136,7 +153,7 @@ For each failing job:
 
 Format each threaded reply like:
 
-```
+```text
 %EMOJI% *%JOB_NAME% -- %PASS%/10 (%RATE%%)*
 
 Pattern: %PATTERN_DESCRIPTION%

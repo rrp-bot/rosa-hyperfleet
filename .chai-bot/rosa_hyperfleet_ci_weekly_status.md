@@ -90,7 +90,7 @@ gh pr list --repo openshift-online/<repo> \
 
 Post the report as your channel response. Format:
 
-```
+```text
 :fyi: *ROSA HyperFleet CI Weekly Status ({MM/DD})*
 
 *Jira Progress:*
@@ -104,11 +104,9 @@ Post the report as your channel response. Format:
 {job with no builds}: no builds in last 7 days
 
 *7-Day Trend:*
-```
               Mon13 Tue14 Wed15 Thu16 Fri17 Sat18 Sun19
 ephemeral:     ✅    ✅    ✅    ✅    ✅    ✅    ✅   7/7 (100%)
 integration:   ✅    ✅    ❌    ✅    ✅    ❌    ✅   5/7 (71%)
-```
 
 *Overall Trend:* %TREND_EMOJI% %TREND_DESCRIPTION%
 
