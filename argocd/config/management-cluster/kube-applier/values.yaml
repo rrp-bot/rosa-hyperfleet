@@ -7,7 +7,7 @@ kubeApplier:
   image:
     registry: "quay.io"
     repository: "psav/kube-applier-aws"
-    tag: "remove-delete-desire"
+    tag: "remove-delete-desire-de22bbb"
     pullPolicy: IfNotPresent
 
   # Deployment configuration
