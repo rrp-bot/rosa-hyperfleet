@@ -20,7 +20,7 @@ hyperfleet:
   helmValues:
     image:
       repository: quay.io/psav/hyperfleet-operator
-      tag: "delete-desires-dba19d4"
+      tag: "delete-desires-88082df"
       pullPolicy: Always
 
     replicaCount: 2
