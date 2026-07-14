@@ -31,41 +31,8 @@ _RC_REGIONAL_ID=$(jq -r '.regional_id // "regional"' "$_RC_CONFIG_FILE")
 # ── Switch to RC account ────────────────────────────────────────────────────
 use_rc_account
 
-# ── Wait for hyperfleet-operator role (created by RC pipeline) ──────────────
-# The MC Deploy stage already waited for RC OIDC outputs, so the RC pipeline
-# should be done or nearly done. Poll briefly as a safety net.
-# Only needed on apply — the destroy path doesn't require the role ARN.
-if [ "${TERRAFORM_ACTION}" == "apply" ]; then
-    _RC_STATE_BUCKET="terraform-state-${RESOLVED_REGIONAL_ACCOUNT_ID}-${TARGET_REGION}"
-    _RC_STATE_KEY="regional-cluster/${_RC_REGIONAL_ID}.tfstate"
-    _RC_TF_DIR="terraform/config/regional-cluster"
-    (cd "$_RC_TF_DIR" && terraform init -reconfigure \
-        -backend-config="bucket=${_RC_STATE_BUCKET}" \
-        -backend-config="key=${_RC_STATE_KEY}" \
-        -backend-config="region=${TARGET_REGION}" \
-        -backend-config="use_lockfile=true" >/dev/null 2>&1)
-
-    _MAX_RETRIES=90
-    _RETRY_DELAY=30
-    _RETRY_COUNT=0
-    _HYPERFLEET_ROLE_ARN=""
-    while [ $_RETRY_COUNT -lt $_MAX_RETRIES ]; do
-        _RETRY_COUNT=$((_RETRY_COUNT + 1))
-        _HYPERFLEET_ROLE_ARN=$(cd "$_RC_TF_DIR" && terraform output -raw hyperfleet_operator_role_arn 2>/dev/null || true)
-        if [ -n "${_HYPERFLEET_ROLE_ARN}" ]; then
-            break
-        fi
-        echo "RC outputs not ready (attempt ${_RETRY_COUNT}/${_MAX_RETRIES}), retrying in ${_RETRY_DELAY}s..."
-        sleep "$_RETRY_DELAY"
-    done
-    if [ -z "${_HYPERFLEET_ROLE_ARN}" ]; then
-        echo "ERROR: hyperfleet_operator_role_arn not available after $((_MAX_RETRIES * _RETRY_DELAY / 60))+ minutes" >&2
-        exit 1
-    fi
-    echo "Hyperfleet-operator role confirmed: ${_HYPERFLEET_ROLE_ARN}"
-fi
-
 # ── Terraform apply ────────────────────────────────────────────────────────
+_RC_STATE_BUCKET="terraform-state-${RESOLVED_REGIONAL_ACCOUNT_ID}-${TARGET_REGION}"
 export TF_STATE_BUCKET="${_RC_STATE_BUCKET}"
 export TF_STATE_KEY="kube-applier-dynamodb/${CLUSTER_ID}.tfstate"
 export TF_STATE_REGION="${TARGET_REGION}"
