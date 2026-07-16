@@ -112,6 +112,7 @@ data:
 
     if [ "$PATCH_OK" != "true" ]; then
       echo "[$(ts)] ERROR: failed to patch ConfigMap after 5 attempts"
+      EXIT_CODE=1
     fi
     rm -f "$PATCH_FILE"
 

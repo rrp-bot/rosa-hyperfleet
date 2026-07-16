@@ -9,7 +9,7 @@ hyperfleet:
 
   source:
     repoURL: https://github.com/typeid/hyperfleet-operator.git
-    targetRevision: pgruntime
+    targetRevision: main
     path: charts/hyperfleet-operator
 
   syncPolicy:
@@ -19,8 +19,8 @@ hyperfleet:
 
   helmValues:
     image:
-      repository: quay.io/psav/hyperfleet-operator
-      tag: "delete-desires-f279b75"
+      repository: quay.io/cbusse_openshift/hyperfleet-operator
+      tag: "pgruntimev2"
       pullPolicy: Always
 
     replicaCount: 2
