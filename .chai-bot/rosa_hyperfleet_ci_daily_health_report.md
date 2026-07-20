@@ -121,7 +121,7 @@ After your top-level summary (Step 4), emit `---THREAD_DETAILS---` on its own li
 
 For each job whose **latest run failed**, produce a **separate threaded reply** with investigation. Follow the investigation procedure in `.claude/agents/ci-troubleshooter.md` to diagnose the failure. The source is `main` — read files directly with the Read tool.
 
-**For every failure, perform ALL THREE analysis steps before classifying. Do not classify as Flake or Unclear without completing all three.**
+**For every failure, perform ALL THREE analysis steps before classifying. Do not classify as Flake without completing all three.** Unclear is permitted when S3 logs cannot be obtained, but only with a documented error and evidence gap.
 
 1. **Prow artifact analysis** (Step 5 in ci-troubleshooter) — fetch and analyze the build logs and artifacts from GCS. Identify the failing step, error messages, and failure scope.
 
@@ -142,7 +142,7 @@ Format each threaded reply like:
 %EMOJI% *%JOB_NAME% -- %PASS%/10 (%RATE%%)*
 
 %CLASSIFICATION%: %SHORT_SUMMARY%
-Evidence: Prow ✅ | S3 Logs ✅/❌ | Git History ✅ | Trend ✅
+Evidence: Prow ✅ | S3 Logs ✅/❌ | Git History ✅/❌ | Trend ✅
 %ROOT_CAUSE_ANALYSIS%
 S3 Log Evidence: %KEY_FINDINGS_FROM_S3_LOGS%
 Suspect Commits: %COMMITS_BETWEEN_LAST_GOOD_AND_CURRENT_BAD% (or "None — no relevant changes")
@@ -169,7 +169,7 @@ For each failing job, classify the failure following Step 7 in `.claude/agents/c
 2. **S3 logs** — what the extracted cluster logs show (healthy pods, error patterns, restarts)
 3. **Git history** — whether suspect commits exist between last-good and current-bad runs
 
-If any source was not analyzed, the classification must explain why and acknowledge the evidence gap. A classification of Flake or Unclear without S3 log and git history evidence is not valid.
+If any source was not analyzed, the classification must explain why and acknowledge the evidence gap. A classification of Flake without S3 log and git history evidence is not valid. Unclear is permitted when S3 or git evidence could not be obtained, provided the specific access error and resulting evidence gap are documented.
 
 Use the 10-run trend table and consecutive failure streak as additional signal. Two or more consecutive failures with the same error signature is almost certainly genuine. A single isolated failure with S3 logs showing healthy state AND no suspect commits AND a known transient error pattern may be a flake.
 
