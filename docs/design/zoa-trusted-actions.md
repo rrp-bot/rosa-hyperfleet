@@ -4,19 +4,19 @@
 
 ## Summary
 
-Zero Operator Access (ZOA) Trusted Actions provide a mediated, auditable mechanism for executing predefined operational tasks on ROSA HCP v2 regional infrastructure without granting operators direct cluster access. All actions are dispatched via Maestro as ManifestWorks, executed as ephemeral Kubernetes Jobs, and produce artifacts stored in S3 with full audit trails in DynamoDB.
+Zero Operator Access (ZOA) Trusted Actions provide a mediated, auditable mechanism for executing predefined operational tasks on ROSA HCP v2 regional infrastructure without granting operators direct cluster access. All actions are dispatched via Platform API as Manifest CRs in PostgreSQL (hyperfleet-db), distributed to target clusters by the hyperfleet-operator and kube-applier pipeline, executed as ephemeral Kubernetes Jobs, and produce artifacts stored in S3 with full audit trails in DynamoDB.
 
 ## Context
 
 - **Problem Statement**: Operators currently require direct kubectl/AWS CLI access to diagnose and remediate cluster issues. This violates Zero Operator Access principles by creating persistent, unaudited access paths. We need a system that allows operational tasks to be executed exclusively through predefined, auditable channels.
 - **Constraints**:
   - EKS Pod Identity allows only one IAM role per ServiceAccount per namespace
-  - Maestro ManifestWork is the transport mechanism to target clusters (no direct network path from RC to MC)
-  - ManifestWork `feedbackRules` status values are size-limited (~1KB per field, 128KB total via MQTT)
-  - All output must be stored in S3 (not in ManifestWork status)
+  - Manifest CR → DynamoDB ApplyDesire → kube-applier is the transport mechanism to target clusters (no direct network path from RC to MC)
+  - DynamoDB status table values are size-limited per item (400KB max)
+  - All output must be stored in S3 (not in Manifest CR status)
   - Must be FIPS-compliant for FedRAMP
 - **Assumptions**:
-  - Maestro Agent runs on both RC and MC clusters
+  - kube-applier runs on MC clusters
   - Platform API is the single entry point for TA execution
   - ArgoCD manages infrastructure provisioning on both cluster types
   - TAs may move to their own repository in the future
@@ -29,7 +29,7 @@ Zero Operator Access (ZOA) Trusted Actions provide a mediated, auditable mechani
 | ------------------------------------------------------- | ------------------- | -------------------------------------------------------------------- |
 | Script logic + RBAC rules                               | TA author           | `argocd/config/regional-cluster/platform-api/ta-templates/`          |
 | Job boilerplate (image, volumes, entrypoint, resources) | Platform/infra team | `zoa-job-config` ConfigMap in platform repo                          |
-| Job generation logic                                    | Platform API code   | Go code reads template + config, builds ManifestWork                 |
+| Job generation logic                                    | Platform API code   | Go code reads template + config, builds Manifest CR                  |
 | Infrastructure (namespace, SAs, Pod Identity)           | Platform/infra team | `zoa-jobs` Helm chart (`argocd/config/shared/zoa-jobs/`) + Terraform |
 
 ### TA Template Format (What Authors Write)
@@ -135,8 +135,8 @@ AWS-scoped TAs use static ServiceAccounts (`zoa-aws-read`, `zoa-aws-write`) with
     "affected_resources": [
       {
         "kind": "Pod",
-        "namespace": "maestro",
-        "name": "maestro-xyz",
+        "namespace": "hyperfleet",
+        "name": "hyperfleet-operator-xyz",
         "action": "deleted"
       }
     ],
@@ -159,7 +159,7 @@ fi
 
 ### What Platform API Generates (Per Execution)
 
-From a minimal TA template, Platform API dynamically creates a ManifestWork containing:
+From a minimal TA template, Platform API dynamically creates a Manifest CR containing:
 
 1. **ServiceAccount** — per-execution `zoa-runner-<exec-id>`
 2. **Role/ClusterRole** — from `rbac.rules` section
@@ -219,7 +219,7 @@ The `zoa-job-config` ConfigMap serves as the centralized source of truth for all
 
 - **Wrapper scripts (`entrypoint.sh`, `upload_entrypoint.sh`)**: Embedded in the ConfigMap rather than baked into the container image. This allows hotfixing execution behavior (e.g., output capture, logging format) without rebuilding the `zoa-tools` image.
 - **Base64 encoding for inter-job transfer**: The runner Job writes `execution.log` and `output.json` to the output ConfigMap as `binaryData` (base64-encoded). This avoids YAML escaping issues with arbitrary script output while staying within Kubernetes API limits (~10-15k lines of output).
-- **Two-job parallel dispatch**: Both runner and uploader Jobs are created simultaneously in the same ManifestWork to avoid time overhead. The uploader starts immediately and polls the runner Job status every 1s (checking for `Complete` or `Failed` conditions). This detects runner failure in ~1s with no wasted wait time. Once the runner finishes, the uploader reads the output ConfigMap and uploads artifacts to S3. This parallel creation eliminates sequential dispatch latency — the uploader is already scheduled and waiting by the time the runner finishes. Each Job uses its own ServiceAccount, which also avoids shared permission leakage between execution and upload concerns.
+- **Two-job parallel dispatch**: Both runner and uploader Jobs are created simultaneously in the same Manifest CR to avoid time overhead. The uploader starts immediately and polls the runner Job status every 1s (checking for `Complete` or `Failed` conditions). This detects runner failure in ~1s with no wasted wait time. Once the runner finishes, the uploader reads the output ConfigMap and uploads artifacts to S3. This parallel creation eliminates sequential dispatch latency — the uploader is already scheduled and waiting by the time the runner finishes. Each Job uses its own ServiceAccount, which also avoids shared permission leakage between execution and upload concerns.
 - **Exit code preservation**: The runner captures `PIPESTATUS[0]` from the TA script and propagates it both to the ConfigMap (for the uploader/reconciler) and as the container exit code (for Kubernetes Job status). Crucially, the ConfigMap patch happens _before_ the runner exits — so even when the TA script fails, the output and logs are still written to the ConfigMap and subsequently uploaded to S3, making debugging of failed TAs straightforward.
 - **Stdout + stderr capture**: All script output is captured via `tee` to `/artifacts/execution.log`, ensuring the full execution trace is available in S3 even if the runner Pod is garbage-collected.
 - **ConfigMap checksum annotation**: The Platform API Deployment uses a checksum of the `zoa-job-config` ConfigMap content as a pod annotation. When the ConfigMap changes (e.g., new image version, updated entrypoint), ArgoCD detects the annotation change and triggers a rolling update of the API pods, which then hot-reload the new config on startup.
@@ -240,12 +240,12 @@ script: |
 
 Cleanup is **reconciler-driven**, not purely TTL-based:
 
-1. **On terminal status (succeeded, failed, timed_out)**: The Platform API reconciler deletes the ResourceBundle from Maestro via gRPC. Maestro Agent cascades deletion to all resources on the target cluster (Job, Pod, ConfigMap, RBAC).
-2. **Race-safe ordering**: ResourceBundle is deleted BEFORE DynamoDB status is updated. If RB deletion fails, status stays `pending`/`running` and the reconciler retries on the next tick.
+1. **On terminal status (succeeded, failed, timed_out)**: The hyperfleet-operator (ManifestReconciler) deletes the Manifest CR from PostgreSQL and removes the corresponding ApplyDesire specs from DynamoDB. kube-applier cascades deletion to all resources on the target cluster (Job, Pod, ConfigMap, RBAC).
+2. **Race-safe ordering**: Manifest CR is deleted BEFORE DynamoDB status is updated. If deletion fails, status stays `pending`/`running` and the reconciler retries on the next tick.
 3. **TTL as safety net**: Jobs have `ttlSecondsAfterFinished: 3600` (1h) as backup GC in case reconciler fails to clean up.
 4. **Logs survive cleanup**: The uploader Job uploads `execution.log` to S3 before resources are deleted, so troubleshooting data is available via the API even after the Pod/Job is garbage-collected.
 
-Static ServiceAccounts (`zoa-uploader`, `zoa-aws-read`, `zoa-aws-write`) are infrastructure managed by the `zoa-jobs` chart and are never deleted. Per-execution runner SAs and all other ManifestWork resources are removed on completion.
+Static ServiceAccounts (`zoa-uploader`, `zoa-aws-read`, `zoa-aws-write`) are infrastructure managed by the `zoa-jobs` chart and are never deleted. Per-execution runner SAs and all other Manifest CR resources are removed on completion.
 
 ### Service Account Strategy — Two-Job Split
 
@@ -260,9 +260,9 @@ ZOA uses a split SA model separating operational permissions from output transpo
 
 **Key design decisions:**
 
-1. **Per-execution SA for kube TAs**: `zoa-runner-<exec-id>` is created dynamically in the ManifestWork. No Pod Identity — perfect K8s audit attribution.
+1. **Per-execution SA for kube TAs**: `zoa-runner-<exec-id>` is created dynamically in the Manifest CR. No Pod Identity — perfect K8s audit attribution.
 2. **Static SAs for AWS TAs**: `zoa-aws-read` and `zoa-aws-write` require pre-provisioned Pod Identity. They have **no access to the ZOA S3 bucket**.
-3. **Dedicated uploader SA**: Only `zoa-uploader` can write to S3. Uploader Kubernetes RBAC is generated dynamically per execution in the ManifestWork, scoped with `resourceNames` to the specific output ConfigMap and runner Job.
+3. **Dedicated uploader SA**: Only `zoa-uploader` can write to S3. Uploader Kubernetes RBAC is generated dynamically per execution in the Manifest CR, scoped with `resourceNames` to the specific output ConfigMap and runner Job.
 4. **No SA has both**: No single SA has both operational permissions AND S3 write access.
 
 **Audit chain:**
@@ -271,7 +271,7 @@ ZOA uses a split SA model separating operational permissions from output transpo
 | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | Platform API (DynamoDB executions)  | `execution_id`, `operator`, `jira`, `action`, `target`, `params`, `revision`, `updated_at`, `dry_run`, `force`, timestamps | Who requested what, when, why (Jira), and how (dry-run/forced) |
 | Platform API (DynamoDB audit table) | `method`, `path` (full URI), `action`, `target_cluster`, `execution_id`, `jira`, `operator`, `status_code`, `timestamp`    | Every API call (including reads and rejections)                |
-| ManifestWork + all resources        | Labels: `zoa.rosa.io/execution-id`, `zoa.rosa.io/operator`, `zoa.rosa.io/action`, `zoa.rosa.io/revision`                   | Full traceability on every K8s resource                        |
+| Manifest CR + all resources         | Labels: `zoa.rosa.io/execution-id`, `zoa.rosa.io/operator`, `zoa.rosa.io/action`, `zoa.rosa.io/revision`                   | Full traceability on every K8s resource                        |
 | Kubernetes audit logs               | Per-execution SA name (`zoa-runner-<exec-id>`) + pod labels                                                                | Perfect execution-level attribution                            |
 | S3 object metadata                  | `x-amz-meta-execution-id`, `x-amz-meta-operator`                                                                           | Output ownership                                               |
 
@@ -284,7 +284,7 @@ Infrastructure is deployed via the `zoa-jobs` Helm chart at `argocd/config/share
 | RC           | ApplicationSet → `zoa-jobs` chart | Namespace `zoa-jobs`, static SAs                    |
 | MC           | ApplicationSet → `zoa-jobs` chart | Namespace `zoa-jobs`, static SAs (execution target) |
 
-ManifestWork is used **only** as transport for TA executions (Job + per-execution RBAC + ConfigMap).
+The Manifest CR / ApplyDesire pipeline is used **only** as transport for TA executions (Job + per-execution RBAC + ConfigMap).
 
 ### Job Image
 
@@ -334,7 +334,10 @@ All `POST /trusted-actions/{action}/run` calls require a `jira` field:
 {
   "target_cluster": "mc-useast1-1",
   "jira": "ROSAENG-1234",
-  "params": { "namespace": "maestro", "name": "maestro-abc-123" },
+  "params": {
+    "namespace": "hyperfleet",
+    "name": "hyperfleet-operator-abc-123"
+  },
   "force": false,
   "dry_run": false
 }
@@ -413,8 +416,8 @@ The API proxies S3 content directly — no presigned URLs exposed to consumers.
 
 | Status      | Meaning                                                                |
 | ----------- | ---------------------------------------------------------------------- |
-| `pending`   | Execution created, ManifestWork dispatched but not yet applied         |
-| `running`   | ManifestWork applied, Job running on target cluster                    |
+| `pending`   | Execution created, Manifest CR persisted but not yet applied to target |
+| `running`   | ApplyDesire written, Job running on target cluster                     |
 | `succeeded` | Job completed successfully (exit 0)                                    |
 | `failed`    | Job failed (non-zero exit)                                             |
 | `timed_out` | Execution exceeded per-TA or global timeout — reconciler force-cleaned |
@@ -657,26 +660,26 @@ $ zoa run get_nodes -t eph-bc5fee45-mc01 --jira ROSAENG-1234
 ]
 
 # 3. Fetch a single resource by name
-$ zoa run get_pods -t eph-bc5fee45-mc01 -n maestro --name maestro-abc-123 --jira ROSAENG-1234
+$ zoa run get_pods -t eph-bc5fee45-mc01 -n hyperfleet --name hyperfleet-operator-abc-123 --jira ROSAENG-1234
 
 # 4. Pipe to jq for further filtering
 $ zoa run get_pods -t eph-bc5fee45-mc01 -A --jira ROSAENG-1234 | jq '.[] | select(.restarts > 5)'
 $ zoa run get_pods -t eph-bc5fee45-mc01 -A --jira ROSAENG-1234 | jq '.[] | select(.status != "Running")'
 
 # 5. Filters
-$ zoa run get_pods -t eph-bc5fee45-mc01 -n maestro -l app=maestro --jira ROSAENG-1234
+$ zoa run get_pods -t eph-bc5fee45-mc01 -n hyperfleet -l app=hyperfleet-operator --jira ROSAENG-1234
 $ zoa run get_pods -t eph-bc5fee45-mc01 -A --jira ROSAENG-1234
 $ zoa run get_resource -t eph-bc5fee45-mc01 --resource hostedclusters -A --jira ROSAENG-1234
 
 # 6. Write operations
-$ zoa run rollout_restart -t eph-bc5fee45-mc01 -n maestro --name maestro --jira ROSAENG-1234
-$ zoa run delete_pod -t eph-bc5fee45-mc01 -n maestro --name maestro-xyz --jira ROSAENG-1234
+$ zoa run rollout_restart -t eph-bc5fee45-mc01 -n hyperfleet --name hyperfleet-operator --jira ROSAENG-1234
+$ zoa run delete_pod -t eph-bc5fee45-mc01 -n hyperfleet --name hyperfleet-operator-xyz --jira ROSAENG-1234
 
 # 7. Dry-run preview before a write
-$ zoa run rollout_restart -t eph-bc5fee45-mc01 -n maestro --name maestro --dry-run --jira ROSAENG-1234
+$ zoa run rollout_restart -t eph-bc5fee45-mc01 -n hyperfleet --name hyperfleet-operator --dry-run --jira ROSAENG-1234
 
 # 8. Force bypass write cooldown
-$ zoa run rollout_restart -t eph-bc5fee45-mc01 -n maestro --name maestro --force --jira ROSAENG-1234
+$ zoa run rollout_restart -t eph-bc5fee45-mc01 -n hyperfleet --name hyperfleet-operator --force --jira ROSAENG-1234
 
 # 9. On failure, logs are shown automatically (stderr)
 $ zoa run get_pods -t eph-bc5fee45-mc01 -n invalid --jira ROSAENG-1234
@@ -782,32 +785,41 @@ The `force: true` flag bypasses both write cooldown and max concurrent checks:
 
 ### Dispatch Flow (Two-Job Architecture)
 
-```
-Operator (zoa run) → Platform API → Maestro (gRPC CreateManifestWork) → Maestro Agent → Target Cluster
-                                                                                              │
-                                                                                  Applies ManifestWork:
-                                                                                  SA, RBAC, ConfigMaps, Jobs
-                                                                                              │
-                                                                            ┌─────────────────┴────────────────────┐
-                                                                            │                                      │
-                                                                     Runner Job                             Uploader Job
-                                                                     (per-exec SA)                          (static SA: zoa-uploader)
-                                                                            │                                      │
-                                                                   /zoa/entrypoint.sh                     Poll runner (1s loop)
-                                                                     (tee → execution.log)                         │
-                                                                            │                              Read output ConfigMap
-                                                                  Patch output ConfigMap                    Decode base64 → files
-                                                                   (base64: log + output)                          │
-                                                                            │                              aws s3 cp → S3 bucket
-                                                                          Exit                                   Exit
-                                                                            │                                      │
-                                                                            └──────────────────┬───────────────────┘
-                                                                                               │
-Platform API Reconciler (5s loop):                                                             │
-  ← Maestro (GetManifestWork) ← feedbackRules (succeeded/failed + Job timestamps) ←───────────┘
-  → Compute: runner_seconds, upload_seconds, duration_seconds
-  → Delete ResourceBundle (on terminal status, race-safe → cascades cleanup on target cluster)
-  → DynamoDB (status, durations, output_status, revision, updated_at)
+```text
+Operator (zoa run) → Platform API → creates Manifest CR in PostgreSQL (hyperfleet-db)
+                                          │
+                                    hyperfleet-operator (ManifestReconciler)
+                                          │
+                                    writes ApplyDesire to DynamoDB
+                                          │
+                                    kube-applier → Target Cluster
+                                          │
+                                Applies resources:
+                                SA, RBAC, ConfigMaps, Jobs
+                                          │
+                        ┌─────────────────┴────────────────────┐
+                        │                                      │
+                  Runner Job                             Uploader Job
+                  (per-exec SA)                          (static SA: zoa-uploader)
+                        │                                      │
+               /zoa/entrypoint.sh                     Poll runner (1s loop)
+                 (tee → execution.log)                         │
+                        │                              Read output ConfigMap
+              Patch output ConfigMap                    Decode base64 → files
+               (base64: log + output)                          │
+                        │                              aws s3 cp → S3 bucket
+                      Exit                                   Exit
+                        │                                      │
+                        └──────────────────┬───────────────────┘
+                                           │
+                                           ▼
+                  Platform API Reconciler (5s loop):
+                    ← Manifest CR status (via DynamoDB Streams → operator)
+                    → Reads: succeeded/failed + Job timestamps
+                    → Compute: runner_seconds, upload_seconds, duration_seconds
+                    → Delete Manifest CR (terminal status → operator removes
+                      ApplyDesire → kube-applier cascades cleanup)
+                    → DynamoDB (status, durations, output_status, revision)
 ```
 
 ### TA Versioning
@@ -818,7 +830,7 @@ Platform API Reconciler (5s loop):                                              
 
 ## Alternatives Considered
 
-1. **Per-execution ServiceAccount with dynamic Pod Identity**: Each TA execution creates its own SA and wires Pod Identity dynamically. Rejected because EKS Pod Identity requires Terraform/API calls per SA (cannot be done from within a ManifestWork), adding minutes of latency and significant IAM complexity.
+1. **Per-execution ServiceAccount with dynamic Pod Identity**: Each TA execution creates its own SA and wires Pod Identity dynamically. Rejected because EKS Pod Identity requires Terraform/API calls per SA (cannot be done from within a Manifest CR), adding minutes of latency and significant IAM complexity.
 
 2. **Single shared ServiceAccount**: One SA (`zoa-job-runner`) for all TAs. Rejected because Kubernetes audit logs only show SA identity — all TAs would be indistinguishable at the K8s audit level. Additionally, a shared SA bound to N possible Roles means parallel executions share permissions — any running TA would have access to RBAC granted for a different concurrent TA.
 
@@ -826,12 +838,12 @@ Platform API Reconciler (5s loop):                                              
 
 4. **Sidecar container for S3 upload**: A separate container watches `/artifacts` and uploads. Rejected because sidecars add complexity around container ordering and completion detection. Additionally, containers in the same Pod share the same ServiceAccount — the runner would inherit S3 write permissions, breaking the isolation between operational actions and output transport.
 
-5. **Full ManifestWork templates (Job + RBAC defined by TA author)**: TA authors define the entire ManifestWork content including Job spec. Rejected because it couples boilerplate (image, volumes, resources, entrypoint) to each TA, requiring all TAs to be updated when infrastructure changes (e.g., image bump).
+5. **Full Manifest CR templates (Job + RBAC defined by TA author)**: TA authors define the entire Manifest CR content including Job spec. Rejected because it couples boilerplate (image, volumes, resources, entrypoint) to each TA, requiring all TAs to be updated when infrastructure changes (e.g., image bump).
 
 ## Design Rationale
 
 - **Justification**: The split SA model (per-execution runner + static uploader/AWS SAs) balances auditability, operational simplicity, and Pod Identity constraints. Separating TA authoring (script + RBAC) from execution boilerplate (image, wrapper, resources) enables independent evolution of each concern.
-- **Evidence**: Maestro is the current transport layer for ManifestWork dispatch across ROSA HCP v2 (hyperfleet), ARO-HCP, and GCP-HCP — a proven mechanism at scale. The `openshift/managed-scripts` project validates the "swiss knife image + script" pattern for OSD/ROSA operations.
+- **Evidence**: kube-applier is the proven transport layer for resource distribution across ROSA HCP v2 (hyperfleet), using DynamoDB as the durable desire store and DynamoDB Streams for status feedback. The `openshift/managed-scripts` project validates the "swiss knife image + script" pattern for OSD/ROSA operations.
 - **Comparison**: Per-execution runner SAs provide execution-level K8s audit attribution. Static AWS and uploader SAs satisfy Pod Identity constraints while keeping IAM association count bounded. Rich labels on all resources enable correlation via kube audit logs.
 
 ## Consequences
@@ -871,8 +883,8 @@ Platform API Reconciler (5s loop):                                              
 ### Reliability:
 
 - **Scalability**: Stable SAs and ArgoCD-managed infra support thousands of concurrent executions. DynamoDB uses a `status-index` GSI for efficient reconciler queries (no full-table scans)
-- **Observability**: DynamoDB provides queryable execution history; S3 stores execution logs and output; ManifestWork status provides real-time job state
-- **Resiliency**: Reconciler uses race-safe ordering (delete RB before status update) to prevent stale resources. Per-TA and global timeouts prevent stuck executions. Logs are uploaded unconditionally to S3 before Job exits.
+- **Observability**: DynamoDB provides queryable execution history; S3 stores execution logs and output; Manifest CR status provides real-time job state
+- **Resiliency**: Reconciler uses race-safe ordering (delete Manifest CR before status update) to prevent stale resources. Per-TA and global timeouts prevent stuck executions. Logs are uploaded unconditionally to S3 before Job exits.
 - **Timeout handling**: Executions exceeding their timeout are marked `timed_out` (distinct from `failed`), RB is deleted, and the full duration is recorded
 
 ### Cost:
@@ -895,5 +907,4 @@ Platform API Reconciler (5s loop):                                              
 ## Related Documentation
 
 - [ZOA Framework (Sections 1-9)](https://redhat.atlassian.net/browse/ROSA-672) — Approved layered model and access matrix
-- [Maestro MQTT Resource Distribution](./maestro-mqtt-resource-distribution.md) — How ManifestWorks are dispatched
 - [openshift/managed-scripts](https://github.com/openshift/managed-scripts) — Reference for script execution pattern and job image

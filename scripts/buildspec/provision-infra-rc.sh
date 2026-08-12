@@ -75,6 +75,7 @@ fi
 export TF_VAR_container_image="${PLATFORM_IMAGE}"
 
 export TF_VAR_enable_bastion="${ENABLE_BASTION}"
+export TF_VAR_hyperfleet_db_deletion_protection=$(parseBool '.hyperfleet_db_deletion_protection' true "$DEPLOY_CONFIG_FILE")
 export TF_VAR_enable_cloudtrail=$(parseBool '.enable_cloudtrail' false "$DEPLOY_CONFIG_FILE")
 export TF_VAR_enable_api_custom_domain=$(parseBool '.enable_api_custom_domain' false "$DEPLOY_CONFIG_FILE")
 export TF_VAR_zone_shard_count=$(jq -r '.zone_shard_count // 1' "$DEPLOY_CONFIG_FILE")
@@ -112,10 +113,8 @@ if [ "$TF_VAR_enable_sre_oidc_auth" = "true" ]; then
     export TF_VAR_sre_prometheus_oidc_client_id
     TF_VAR_sre_thanos_oidc_client_id=$(jq -r '.sre_thanos_oidc_client_id // ""' "$DEPLOY_CONFIG_FILE")
     export TF_VAR_sre_thanos_oidc_client_id
-    TF_VAR_sre_loki_oidc_client_id=$(jq -r '.sre_loki_oidc_client_id // ""' "$DEPLOY_CONFIG_FILE")
-    export TF_VAR_sre_loki_oidc_client_id
 
-    for svc in grafana argocd prometheus thanos loki; do
+    for svc in grafana argocd prometheus thanos; do
         secret=$(aws secretsmanager get-secret-value \
             --secret-id "sre-ui-alb/${svc}/oidc-client-secret" \
             --region "${TARGET_REGION}" \

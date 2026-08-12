@@ -15,6 +15,7 @@ log = logging.getLogger(__name__)
 GIT_TIMEOUT = 120  # seconds; clone/push can be slow on large repos
 HTTP_TIMEOUT = 30  # seconds; GitHub API calls
 RENDER_TIMEOUT = 300  # seconds; render.py may run terraform/heavy scripts
+UPSTREAM_REPO_NAME = "rosa-hyperfleet"
 
 
 class GitManager:
@@ -126,8 +127,7 @@ class GitManager:
 
         # Add the token owner's fork as the push remote
         fork_owner = self._resolve_fork_owner(token)
-        repo_name = self.source_repo.split("/")[-1]
-        self.fork_repo = f"{fork_owner}/{repo_name}"
+        self.fork_repo = f"{fork_owner}/{UPSTREAM_REPO_NAME}"
         fork_url = f"https://github.com/{self.fork_repo}.git"
         self._run_git("remote", "add", "ci", fork_url)
         log.info("Push remote: %s (fork of %s)", self.fork_repo, self.source_repo)
@@ -173,8 +173,7 @@ class GitManager:
 
         # Resolve fork
         fork_owner = self._resolve_fork_owner(token)
-        repo_name = self.source_repo.split("/")[-1]
-        self.fork_repo = f"{fork_owner}/{repo_name}"
+        self.fork_repo = f"{fork_owner}/{UPSTREAM_REPO_NAME}"
         fork_url = f"https://github.com/{self.fork_repo}.git"
 
         tmpdir = tempfile.mkdtemp(prefix="ephemeral-")

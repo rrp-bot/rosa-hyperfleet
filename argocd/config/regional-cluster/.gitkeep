@@ -1,2 +1,2 @@
 # This directory holds regional-cluster helm chart configurations
-# Add helm charts here as needed (e.g., maestro/, platform-api/, etc.)
+# Add helm charts here as needed (e.g., platform-api/, hyperfleet/, etc.)

@@ -200,6 +200,9 @@ module "ecs_bootstrap" {
   loki_kms_key_arn   = module.loki_infrastructure.kms_key_arn
 
   management_clusters = var.management_clusters
+
+  rc_aws_account_id = var.target_account_id
+  redis_endpoint    = var.enable_rate_limit_redis ? "${module.elasticache_valkey[0].endpoint}:${module.elasticache_valkey[0].port}" : ""
 }
 
 # =============================================================================
@@ -286,7 +289,6 @@ module "sre_ui_alb" {
     argocd     = { client_id = var.sre_argocd_oidc_client_id, client_secret = var.sre_argocd_oidc_client_secret }
     prometheus = { client_id = var.sre_prometheus_oidc_client_id, client_secret = var.sre_prometheus_oidc_client_secret }
     thanos     = { client_id = var.sre_thanos_oidc_client_id, client_secret = var.sre_thanos_oidc_client_secret }
-    loki       = { client_id = var.sre_loki_oidc_client_id, client_secret = var.sre_loki_oidc_client_secret }
   } : {}
 
 }
@@ -350,7 +352,7 @@ resource "aws_route53_record" "regional_delegation" {
 #
 # Each shard is a separate Route53 HostedZone under the regional zone,
 # providing ~10k records per shard. MC operators (external-dns, cert-manager)
-# create cluster records in shards. CLM assigns clusters to shards.
+# create cluster records in shards. hyperfleet-operator assigns clusters to shards.
 # =============================================================================
 
 resource "aws_route53_zone" "zone_shard" {
@@ -466,6 +468,25 @@ module "hyperfleet_db" {
 }
 
 # =============================================================================
+# ElastiCache Valkey — rate limit counters (GCRA)
+# =============================================================================
+
+module "elasticache_valkey" {
+  count  = var.enable_rate_limit_redis ? 1 : 0
+  source = "../../modules/elasticache-valkey"
+
+  cluster_id         = var.regional_id
+  vpc_id             = module.vpc.vpc_id
+  private_subnet_ids = module.vpc.private_subnet_ids
+
+  eks_cluster_security_group_id         = module.vpc.cluster_security_group_id
+  eks_cluster_primary_security_group_id = module.regional_cluster.node_security_group_id
+
+  node_type      = var.valkey_node_type
+  engine_version = var.valkey_engine_version
+}
+
+# =============================================================================
 # Hyperfleet Operator IAM (Pod Identity)
 #
 # The hyperfleet-operator runs on the RC, reads/writes CRs in hyperfleet-db
@@ -530,8 +551,9 @@ module "cloudwatch_exporter" {
 module "regional_oidc" {
   source = "../../modules/regional-oidc"
 
-  regional_id = var.regional_id
-  mc_ou_path  = var.mc_ou_path
+  regional_id   = var.regional_id
+  mc_ou_path    = var.mc_ou_path
+  force_destroy = var.environment == "ephemeral"
 }
 
 # =============================================================================

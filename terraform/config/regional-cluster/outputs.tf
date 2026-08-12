@@ -288,6 +288,17 @@ output "hyperfleet_db_dsn_secret_name" {
   value       = module.hyperfleet_db.dsn_secret_name
 }
 
+# ElastiCache Valkey
+output "hyperfleet_redis_endpoint" {
+  description = "ElastiCache Valkey endpoint for rate limiting (null if disabled)"
+  value       = var.enable_rate_limit_redis ? module.elasticache_valkey[0].endpoint : null
+}
+
+output "hyperfleet_redis_port" {
+  description = "ElastiCache Valkey port (null if disabled)"
+  value       = var.enable_rate_limit_redis ? module.elasticache_valkey[0].port : null
+}
+
 # =============================================================================
 # CloudWatch Exporter Outputs
 # =============================================================================
@@ -379,11 +390,6 @@ output "sre_prometheus_target_group_arn" {
 output "sre_thanos_target_group_arn" {
   description = "ARN of the Thanos Query Frontend SRE ALB target group"
   value       = try(module.sre_ui_alb[0].thanos_target_group_arn, "")
-}
-
-output "sre_loki_target_group_arn" {
-  description = "ARN of the Loki Query Frontend SRE ALB target group"
-  value       = try(module.sre_ui_alb[0].loki_target_group_arn, "")
 }
 
 output "sre_alb_dns_name" {

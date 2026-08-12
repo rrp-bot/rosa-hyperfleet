@@ -27,7 +27,7 @@ The nightly pipeline includes k6-based load tests that stress the Platform API u
 Two load test scripts target different concerns:
 
 - **Platform API load** (`ci/load-test/scripts/platform-api-load.js`): Ramps to 50 concurrent virtual users over 2 minutes, holds for 10 minutes, then ramps down. Exercises health endpoints, management cluster CRUD, resource bundle listing, and ManifestWork posting. Thresholds: p99 latency < 5s, error rate < 1%.
-- **HCP lifecycle load** (`ci/load-test/scripts/hcp-lifecycle-load.js`): Creates multiple HostedClusters concurrently via the Platform API, polls for visibility, and posts ManifestWork to each. Validates that Maestro MQTT distribution and HyperShift operator scaling handle parallel cluster creation.
+- **HCP lifecycle load** (`ci/load-test/scripts/hcp-lifecycle-load.js`): Creates multiple HostedClusters concurrently via the Platform API, polls for visibility, and posts ManifestWork to each. Validates that kube-applier DynamoDB-backed resource distribution and HyperShift operator scaling handle parallel cluster creation.
 
 Results are saved as JSON to Prow artifacts (`${ARTIFACT_DIR}/load-test-results/`). A baseline comparison script (`ci/load-test/compare-baseline.py`) checks for performance regressions against a baseline stored in S3, failing if any metric regresses beyond a configurable threshold (default 20%).
 

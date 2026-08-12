@@ -37,11 +37,10 @@ repository_branch = "main"
 # enable_bastion = true
 
 # =============================================================================
-# Maestro Agent Configuration (Optional)
+# Management Cluster Identity
 # =============================================================================
 
 # Logical cluster ID - MUST match the ID used in regional cluster's management_cluster_ids
 # Example: "mc01", "mc02", etc.
-# This is used as the Maestro consumer name and for looking up pre-provisioned resources
 cluster_id = "mc01"
 

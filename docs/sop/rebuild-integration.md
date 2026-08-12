@@ -61,10 +61,10 @@ sequenceDiagram
 
 ### Step 3: Clean up leftover resources
 
-After both teardowns complete, three Secrets Manager secrets in the MC account will remain scheduled for deletion with a 30-day recovery window. These block re-provision because Terraform cannot create a secret while another with the same name is pending deletion. Force-delete them:
+After both teardowns complete, the HyperShift config secret in the MC account will remain scheduled for deletion with a 30-day recovery window. This blocks re-provision because Terraform cannot create a secret while another with the same name is pending deletion. Force-delete it:
 
 ```bash
-for secret in mc01-maestro-agent-cert mc01-maestro-agent-config hypershift/mc01-config; do
+for secret in hypershift/mc01-config; do
   aws secretsmanager delete-secret --secret-id "$secret" --force-delete-without-recovery --region us-east-1
 done
 ```

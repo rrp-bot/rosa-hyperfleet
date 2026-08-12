@@ -36,7 +36,7 @@ graph TB
     subgraph RC["Regional Cluster"]
         RC_KSM["kube-state-metrics"]
         RC_NE["node-exporter"]
-        RC_YACE["YACE<br/>EKS, IoT, RDS, ALB,<br/>API GW, DynamoDB,<br/>AmazonMQ, ACM"]
+        RC_YACE["YACE<br/>EKS, RDS, ALB,<br/>API GW, DynamoDB, ACM"]
         RC_SM["ServiceMonitors<br/>app metrics"]
         RC_PROM["Prometheus (HA)"]
         RECEIVE["Thanos Receive<br/>router + ingesters"]
@@ -109,16 +109,15 @@ YACE polls AWS CloudWatch APIs and exposes metrics in Prometheus format. Both cl
 
 **Regional Cluster** scrapes:
 
-| AWS Namespace            | Metrics                                                                                            | Purpose                       |
-| ------------------------ | -------------------------------------------------------------------------------------------------- | ----------------------------- |
-| `AWS/EKS`                | apiserver_storage_size_bytes, scheduler_pending_pods, scheduler_schedule_attempts_total            | EKS control plane health      |
-| `AWS/IoT`                | Connect.Success, Connect.AuthError, PublishIn.Success, PublishOut.Success                          | Maestro MQTT broker           |
-| `AWS/ApiGateway`         | Count, Latency, 4XX/5XXError, IntegrationLatency                                                   | Platform + RHOBS API Gateways |
-| `AWS/RDS`                | CPUUtilization, FreeableMemory, ReadLatency, WriteLatency, BurstBalance, DatabaseConnections, IOPS | CLM + Maestro databases       |
-| `AWS/ApplicationELB`     | RequestCount, TargetResponseTime, HealthyHostCount, HTTPCode counts                                | API load balancer             |
-| `AWS/DynamoDB`           | ConsumedRead/WriteCapacityUnits, UserErrors, ThrottledRequests, SuccessfulRequestLatency           | Authorization tables          |
-| `AWS/AmazonMQ`           | MessageCount, MessageUnacknowledgedCount, ConsumerCount, QueueCount, NetworkIn/Out                 | HyperFleet message broker     |
-| `AWS/CertificateManager` | DaysToExpiry                                                                                       | API certificate lifecycle     |
+| AWS Namespace                 | Metrics                                                                                            | Purpose                       |
+| ----------------------------- | -------------------------------------------------------------------------------------------------- | ----------------------------- |
+| `AWS/EKS`                     | apiserver_storage_size_bytes, scheduler_pending_pods, scheduler_schedule_attempts_total            | EKS control plane health      |
+| `AWS/DynamoDB` (kube-applier) | ConsumedRead/WriteCapacityUnits, ReturnedRecordsCount, ThrottledRequests                           | kube-applier desire tables    |
+| `AWS/ApiGateway`              | Count, Latency, 4XX/5XXError, IntegrationLatency                                                   | Platform + RHOBS API Gateways |
+| `AWS/RDS`                     | CPUUtilization, FreeableMemory, ReadLatency, WriteLatency, BurstBalance, DatabaseConnections, IOPS | hyperfleet-db                 |
+| `AWS/ApplicationELB`          | RequestCount, TargetResponseTime, HealthyHostCount, HTTPCode counts                                | API load balancer             |
+| `AWS/DynamoDB`                | ConsumedRead/WriteCapacityUnits, UserErrors, ThrottledRequests, SuccessfulRequestLatency           | Authorization tables          |
+| `AWS/CertificateManager`      | DaysToExpiry                                                                                       | API certificate lifecycle     |
 
 **Management Cluster** scrapes:
 
@@ -158,7 +157,7 @@ Grafana on the RC queries Thanos Query Frontend for a unified view of all cluste
 | RDS                           | RC      | CPU, burst balance, connections, IOPS, storage (CW)                              |
 | ALB                           | RC      | Request count, response time, healthy hosts (CW)                                 |
 | DynamoDB                      | RC      | Read/write capacity, latency, throttled requests (CW)                            |
-| Platform Services             | RC      | IoT/MQTT, AmazonMQ, ACM certificate expiry (CW)                                  |
+| Platform Services             | RC      | ACM certificate expiry (CW)                                                      |
 | HCP Health                    | RC + MC | Hosted control plane status                                                      |
 | ArgoCD Application Overview   | RC      | Application sync status, health                                                  |
 | ArgoCD Notifications Overview | RC      | Notification delivery status                                                     |

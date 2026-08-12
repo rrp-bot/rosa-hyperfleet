@@ -86,16 +86,16 @@ No RC EKS in path. No ALB. No Platform API pods. No Operator. No kube-applier. N
 
 ### What changes (summary)
 
-| Concern               | Before                              | After                                                                       |
-| --------------------- | ----------------------------------- | --------------------------------------------------------------------------- |
-| TA scheduling + API   | Platform API pods (K8s)             | ZOA Lambda per-VPC (AWS-managed)                                            |
-| Transport to clusters | Maestro chain OR kube-applier chain | Direct kubectl from local Lambda (same VPC)                                 |
-| Break-glass           | Platform API (chicken-and-egg)      | ZOA Lambda per-VPC (independent)                                            |
-| Placement             | N/A                                 | ZOA Access Lambda (RC, no VPC)                                              |
-| Approval              | N/A                                 | ZOA Access Lambda + DynamoDB                                                |
-| Reconciliation        | Platform API goroutine (15s)        | EventBridge Scheduler → local ZOA Lambda (reconciler 30s, GC 5m, reaper 5m) |
-| State                 | DynamoDB                            | DynamoDB (same, centralized in RC)                                          |
-| Artifacts             | S3                                  | S3 (same)                                                                   |
+| Concern               | Before                         | After                                                                       |
+| --------------------- | ------------------------------ | --------------------------------------------------------------------------- |
+| TA scheduling + API   | Platform API pods (K8s)        | ZOA Lambda per-VPC (AWS-managed)                                            |
+| Transport to clusters | kube-applier chain (DynamoDB)  | Direct kubectl from local Lambda (same VPC)                                 |
+| Break-glass           | Platform API (chicken-and-egg) | ZOA Lambda per-VPC (independent)                                            |
+| Placement             | N/A                            | ZOA Access Lambda (RC, no VPC)                                              |
+| Approval              | N/A                            | ZOA Access Lambda + DynamoDB                                                |
+| Reconciliation        | Platform API goroutine (15s)   | EventBridge Scheduler → local ZOA Lambda (reconciler 30s, GC 5m, reaper 5m) |
+| State                 | DynamoDB                       | DynamoDB (same, centralized in RC)                                          |
+| Artifacts             | S3                             | S3 (same)                                                                   |
 
 > **Scope**: Lambda replaces ONLY the ZOA/TA/break-glass path. Cluster lifecycle (create/delete/patch) remains on Hyperfleet Operator + kube-applier. Both coexist.
 
@@ -631,7 +631,7 @@ Per-VPC Lambda reconciler detects: approved AWS break-glass for this target
 Break-glass uses the same ZOA Lambda as TAs (different code path, same binary). Dependencies:
 
 - Lambda (99.95%), DynamoDB (99.999%), Function URL (same as Lambda)
-- None of these are Platform API, Maestro, or any custom K8s workload.
+- None of these are Platform API, hyperfleet-operator, or any custom K8s workload.
 - ZOA Access Lambda (for creating rosa-boundary) is NOT VPC-attached, so it works even if EKS is completely down.
 
 ### 3.4 Approval Workflow

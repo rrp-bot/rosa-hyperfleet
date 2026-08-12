@@ -10,7 +10,7 @@ You are helping the user onboard a new component repository for cross-component 
 
 If not provided via `$ARGUMENTS`, ask the user for:
 
-1. **Component name** — the directory name under `argocd/config/regional-cluster/` or `argocd/config/management-cluster/` in this repo (e.g., `platform-api`, `maestro-server`). Validate it exists.
+1. **Component name** — the directory name under `argocd/config/regional-cluster/` or `argocd/config/management-cluster/` in this repo (e.g., `platform-api`, `hyperfleet`). Validate it exists.
 2. **Org and repo** — the GitHub org/repo for the component (e.g., `openshift-online/rosa-hyperfleet-api`). This determines the CI config path in openshift/release.
 3. **Branch** — the branch to configure (default: `main`).
 4. **Dockerfile path** — path to the Dockerfile in the component repo (default: `Dockerfile`).

@@ -59,7 +59,7 @@ variable "enable_bastion" {
 }
 
 # =============================================================================
-# Maestro Configuration Variables
+# Management Cluster Configuration Variables
 # =============================================================================
 
 variable "management_id" {

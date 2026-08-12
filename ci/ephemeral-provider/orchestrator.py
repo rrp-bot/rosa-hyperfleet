@@ -145,11 +145,6 @@ class EphemeralEnvOrchestrator:
 
         self._setup_aws()
 
-        # Collect CodeBuild logs before teardown destroys infrastructure.
-        # In Prow, teardown runs as a separate step — this captures logs
-        # from the provisioning phase that would otherwise be lost.
-        self.collect_codebuild_logs()
-
         # Purge clusters and resource bundles before infrastructure teardown.
         # Deleting bundles triggers ManifestWork removal on the MC, which is
         # what actually tears down the HostedClusters. Without this, terraform
@@ -217,9 +212,11 @@ class EphemeralEnvOrchestrator:
     def _inject_ephemeral_config(self, git: GitManager):
         """Inject the ephemeral environment config into the cloned repo.
 
-        If an override directory (.ephemeral-env/) is provided, it replaces the
-        config/ephemeral/ directory entirely. Otherwise the repo's default
-        config/ephemeral/ is used as-is.
+        If an override directory (.ephemeral-env/) is provided, region YAML
+        files in config/ephemeral/ are replaced with the override's, while
+        defaults.yaml is deep-merged with the override (not replaced) to
+        preserve existing environment settings the override omits. Otherwise
+        the repo's default config/ephemeral/ is used as-is.
 
         In both cases, AWS account IDs are injected into the region config from
         the runtime credentials (never from config files).
@@ -229,12 +226,19 @@ class EphemeralEnvOrchestrator:
         # Replace config with overrides if provided
         if self.override_dir and self.override_dir.exists():
             log.info("Applying environment overrides from %s", self.override_dir)
-            # Ensure target directory exists and clear existing config
             env_config_dir.mkdir(parents=True, exist_ok=True)
+            # Delete only region files (not defaults.yaml) to purge stale configs.
+            # defaults.yaml is merged rather than replaced to preserve env-level
+            # settings (e.g. dns.domain) that the override file omits.
             for existing in env_config_dir.glob("*.yaml"):
-                existing.unlink()
+                if existing.name != "defaults.yaml":
+                    existing.unlink()
             for override_file in self.override_dir.glob("*.yaml"):
-                shutil.copy2(override_file, env_config_dir / override_file.name)
+                target = env_config_dir / override_file.name
+                if override_file.name == "defaults.yaml" and target.exists():
+                    load_and_merge(target, override_file)
+                else:
+                    shutil.copy2(override_file, target)
 
         # Validate: exactly 1 region file must exist (enforced by discover_region
         # at startup, but re-check after override replacement)
@@ -408,7 +412,10 @@ class EphemeralEnvOrchestrator:
                     failed.append(pipeline_name)
 
         if failed:
-            self.collect_codebuild_logs()
+            try:
+                self.collect_codebuild_logs()
+            except Exception:
+                log.exception("Failed to collect CodeBuild logs")
             raise RuntimeError(
                 f"{len(failed)} pipeline(s) failed during provisioning: {', '.join(failed)}"
             )
@@ -722,6 +729,7 @@ class EphemeralEnvOrchestrator:
         ]
 
         # Monitor all teardown pipelines concurrently
+        failed = []
         if teardown_pipelines:
             with ThreadPoolExecutor(max_workers=len(teardown_pipelines)) as executor:
                 future_to_pipeline = {
@@ -735,7 +743,16 @@ class EphemeralEnvOrchestrator:
                         future.result()
                     except (RuntimeError, TimeoutError) as e:
                         log.error("Teardown pipeline '%s' failed: %s", pipeline_name, e)
-                        # Continue with teardown even if infrastructure destroy fails
+                        failed.append(pipeline_name)
+
+        if failed:
+            try:
+                self.collect_codebuild_logs()
+            except Exception:
+                log.exception("Failed to collect teardown CodeBuild logs")
+            raise RuntimeError(
+                f"{len(failed)} pipeline(s) failed during teardown: {', '.join(failed)}"
+            )
 
         # Phase 2: Pipeline teardown
         log.info("")

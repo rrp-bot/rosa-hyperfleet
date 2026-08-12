@@ -74,7 +74,7 @@ make int-port-forward-rc    # or: make int-port-forward-mc
 make ephemeral-port-forward-rc ID=<id>    # or: make ephemeral-port-forward-mc ID=<id>
 ```
 
-Select a service when prompted (e.g. `argocd`, `maestro`). The script handles the full two-hop chain automatically:
+Select a service when prompted (e.g. `argocd`, `platform-api`). The script handles the full two-hop chain automatically:
 
 1. Starts/reuses a bastion ECS task
 2. Runs `kubectl port-forward` inside the bastion (bastion -> K8s service)

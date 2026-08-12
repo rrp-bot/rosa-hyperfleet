@@ -5,7 +5,7 @@ flowchart TD
     subgraph ImplementLoop["Implementation Iteration (circular)"]
         E2E["Implement E2E /\nRefine E2E"]
         Feature["Implement Feature"]
-        Inject["Inject new versions of\ncomponents /\nImplement new CLM adapters"]
+        Inject["Inject new versions of\ncomponents /\nImplement new hyperfleet-operator controllers"]
     end
 
     E2E --> Feature

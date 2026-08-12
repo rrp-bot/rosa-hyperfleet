@@ -147,7 +147,7 @@ example_personas:
       - Implement feature code following existing patterns and conventions
       - Write and refine E2E tests
       - Inject new component versions into ArgoCD configurations
-      - Implement CLM adapters where required
+      - Implement hyperfleet-operator controllers where required
       - Self-validate (compile, lint, unit tests pass) before signaling ready
     approach: >
       Read the spec and implementation plan thoroughly. Study existing

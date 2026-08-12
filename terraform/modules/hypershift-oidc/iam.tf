@@ -184,7 +184,7 @@ resource "aws_eks_pod_identity_association" "hypershift_installer" {
 #
 # Grants the External Secrets Operator permission to read secrets from SSM
 # Parameter Store. ESO will sync these to cluster namespaces managed by
-# CLM/Maestro.
+# hyperfleet-operator/kube-applier.
 #
 # The operator runs in the external-secrets namespace and uses Pod Identity
 # for AWS authentication.

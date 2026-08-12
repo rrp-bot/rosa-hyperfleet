@@ -24,19 +24,8 @@ Three-stage CodePipeline (validate → deploy → bootstrap) for provisioning a 
 
 ### `regional-cluster/`
 
-Provisions the full regional cluster stack: EKS, VPC, API Gateway, Maestro IoT broker, RDS, authorization (DynamoDB + Pod Identity), ECS bootstrap, optional CloudTrail audit logging (disabled by default; enable with `enable_cloudtrail` for compliance environments), and optional bastion.
+Provisions the full regional cluster stack: EKS, VPC, API Gateway, kube-applier DynamoDB tables, RDS (hyperfleet-db), authorization (DynamoDB + Pod Identity), ECS bootstrap, optional CloudTrail audit logging (disabled by default; enable with `enable_cloudtrail` for compliance environments), and optional bastion.
 
 ### `management-cluster/`
 
-Provisions a management cluster: private EKS (1–2 nodes), ECS bootstrap, Maestro agent, and optional bastion. Hosts customer control planes.
-
-### `maestro-agent-iot-provisioning/`
-
-Standalone wrapper around the `maestro-agent-iot-provisioning` module for pipeline-based IoT provisioning. Provisions AWS IoT Core certificates and policies for Maestro agents in management clusters.
-
-Usage:
-
-1. Generate `terraform.tfvars` with cluster-specific values
-2. Run `terraform init && terraform apply`
-3. Extract certificate data: `terraform output -json certificate_data`
-4. Transfer to management account Secrets Manager
+Provisions a management cluster: private EKS (1–2 nodes), ECS bootstrap, kube-applier IAM, and optional bastion. Hosts customer control planes.

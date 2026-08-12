@@ -223,9 +223,9 @@ resource "aws_ecs_task_definition" "bootstrap" {
               sre_argocd_target_group_arn: "$SRE_ARGOCD_TARGET_GROUP_ARN"
               sre_prometheus_target_group_arn: "$SRE_PROMETHEUS_TARGET_GROUP_ARN"
               sre_thanos_target_group_arn: "$SRE_THANOS_TARGET_GROUP_ARN"
-              sre_loki_target_group_arn: "$SRE_LOKI_TARGET_GROUP_ARN"
               sre_alb_dns_name: "$SRE_ALB_DNS_NAME"
               sre_domain: "$SRE_DOMAIN"
+              redis_endpoint: "$REDIS_ENDPOINT"
           type: Opaque
           stringData:
             name: in-cluster
@@ -294,6 +294,10 @@ resource "aws_ecs_task_definition" "bootstrap" {
         {
           name  = "RC_AWS_ACCOUNT_ID"
           value = var.rc_aws_account_id
+        },
+        {
+          name  = "REDIS_ENDPOINT"
+          value = var.redis_endpoint
         }
       ]
 

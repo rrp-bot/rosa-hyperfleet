@@ -147,8 +147,8 @@ terraform_common:
 
 applications:
   regional-cluster:
-    maestro:
-      mqttEndpoint: "xxx.iot.{{ aws_region }}.amazonaws.com"
+    pagerduty:
+      integrationKey: "xxx"
 ```
 
 ### integration/defaults.yaml

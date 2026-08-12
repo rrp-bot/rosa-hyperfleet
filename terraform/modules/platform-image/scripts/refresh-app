@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# refresh-app — Hard-refresh an ArgoCD application via kubectl annotation.
+#
+# Usage: refresh-app <app_name>
+#
+# Triggers an out-of-band hard refresh on the given ArgoCD Application by
+# annotating it with argocd.argoproj.io/refresh=hard. If the target app is
+# not the root app, the root app is always refreshed first so that any
+# generated child apps are up-to-date before the specific app is re-synced.
+#
+# Required tools: kubectl (with a valid KUBECONFIG or in-cluster credentials)
+set -euo pipefail
+
+ROOT_APP="root"
+ARGOCD_NAMESPACE="argocd"
+
+# DNS-1123 subdomain: lowercase alphanumeric segments separated by dots/hyphens,
+# max 253 characters. Matches the format ArgoCD uses for Application names.
+VALID_APP_NAME_RE='^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*$'
+
+usage() {
+  echo "Usage: $(basename "$0") <app_name>" >&2
+  echo "" >&2
+  echo "  Hard-refresh an ArgoCD application via kubectl annotation." >&2
+  echo "  The '${ROOT_APP}' app is always refreshed first unless it is the target." >&2
+  echo "  app_name must be a valid DNS-1123 name (max 253 characters)." >&2
+  echo "" >&2
+  echo "Examples:" >&2
+  echo "  $(basename "$0") hyperfleet-operator   # refreshes root, then hyperfleet-operator" >&2
+  echo "  $(basename "$0") root                  # refreshes root only" >&2
+  exit 1
+}
+
+validate_app_name() {
+  local name="$1"
+  if [[ ${#name} -gt 253 ]]; then
+    echo "ERROR: app name exceeds 253 characters" >&2
+    exit 1
+  fi
+  if [[ ! "${name}" =~ ${VALID_APP_NAME_RE} ]]; then
+    echo "ERROR: '${name}' is not a valid DNS-1123 application name" >&2
+    exit 1
+  fi
+}
+
+refresh_app() {
+  local app="$1"
+  echo "=== Refreshing ArgoCD app: ${app} ==="
+  kubectl annotate app "${app}" \
+    -n "${ARGOCD_NAMESPACE}" \
+    argocd.argoproj.io/refresh=hard \
+    --overwrite
+}
+
+[[ $# -eq 1 ]] || usage
+
+APP_NAME="$1"
+validate_app_name "${APP_NAME}"
+
+if [[ "${APP_NAME}" != "${ROOT_APP}" ]]; then
+  refresh_app "${ROOT_APP}"
+fi
+
+refresh_app "${APP_NAME}"
+
+echo "=== Done ==="

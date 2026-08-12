@@ -284,37 +284,21 @@ resource "aws_kms_key" "rds_logs" {
 }
 
 resource "aws_kms_alias" "rds_logs" {
-  name          = "alias/${var.regional_id}-maestro-rds-logs"
+  name          = "alias/${var.regional_id}-hyperfleet-rds-logs"
   target_key_id = aws_kms_key.rds_logs.key_id
 }
 
 # Log group with retention + KMS (FedRAMP AU-09, AU-11)
 resource "aws_cloudwatch_log_group" "rds_postgresql" {
-  name              = "/aws/rds/instance/${var.regional_id}-maestro/postgresql"
+  name              = "/aws/rds/instance/${var.regional_id}-hyperfleet/postgresql"
   retention_in_days = 365
   kms_key_id        = aws_kms_key.rds_logs.arn
 
   # Ensure the DB instance exists before we claim its log group
-  depends_on = [aws_db_instance.maestro]
+  depends_on = [aws_db_instance.hyperfleet]
 
   tags = merge(local.common_tags, {
-    Name = "${var.regional_id}-maestro-rds-postgresql-logs"
-  })
-}
-```
-
-For resources with server-assigned IDs (e.g., AmazonMQ), the log group name references the parent resource directly:
-
-```hcl
-resource "aws_cloudwatch_log_group" "mq_general" {
-  name              = "/aws/amazonmq/broker/${aws_mq_broker.hyperfleet.id}/general"
-  retention_in_days = 365
-  kms_key_id        = aws_kms_key.mq_logs.arn
-
-  depends_on = [aws_mq_broker.hyperfleet]
-
-  tags = merge(local.common_tags, {
-    Name = "${var.regional_id}-hyperfleet-mq-general-logs"
+    Name = "${var.regional_id}-hyperfleet-rds-postgresql-logs"
   })
 }
 ```
@@ -326,31 +310,16 @@ resource "aws_cloudwatch_log_group" "mq_general" {
 RDS creates log groups with predictable names based on the DB instance identifier:
 
 ```bash
-# RDS instance identifier is: ${regional_id}-maestro
+# RDS instance identifier is: ${regional_id}-hyperfleet
 # RDS creates: /aws/rds/instance/<identifier>/<log-type>
 import_if_needed \
-    'module.maestro_infrastructure.aws_cloudwatch_log_group.rds_postgresql' \
-    "/aws/rds/instance/${TF_VAR_regional_id}-maestro/postgresql"
+    'module.hyperfleet_db.aws_cloudwatch_log_group.rds_postgresql' \
+    "/aws/rds/instance/${TF_VAR_regional_id}-hyperfleet/postgresql"
 ```
 
 #### Dynamic imports (server-assigned IDs)
 
-AmazonMQ and API Gateway use UUIDs in their log group names. These are only known after the parent resource is created:
-
-```bash
-# Broker ID is a UUID assigned by AWS — look it up from state
-BROKER_ID=$(tf_state_value \
-    'module.hyperfleet_infrastructure.aws_mq_broker.hyperfleet' '.values.id')
-if [ -n "$BROKER_ID" ]; then
-    import_if_needed \
-        'module.hyperfleet_infrastructure.aws_cloudwatch_log_group.mq_general' \
-        "/aws/amazonmq/broker/${BROKER_ID}/general"
-else
-    # First deploy: broker hasn't been created yet, so no log group exists.
-    # Terraform will create both the broker and the log group.
-    echo "  [skip] AmazonMQ log groups — broker not yet provisioned"
-fi
-```
+API Gateway uses UUIDs in its log group names. These are only known after the parent resource is created:
 
 ### Pipeline output across environment states
 
@@ -360,7 +329,6 @@ fi
 --- Importing resources ---
   [not-found] ...rds_postgresql — resource does not exist in AWS (expected on fresh env)
   [not-found] ...rds_upgrade — resource does not exist in AWS (expected on fresh env)
-  [skip] AmazonMQ log groups — broker not yet provisioned
   [skip] API GW execution log group — API not yet provisioned
 
 === Import summary ===
@@ -375,14 +343,12 @@ fi
 
 ```text
 --- Importing resources ---
-  [imported] ...rds_postgresql <- /aws/rds/instance/int-regional-maestro/postgresql
-  [imported] ...rds_upgrade <- /aws/rds/instance/int-regional-maestro/upgrade
-  [imported] ...mq_general <- /aws/amazonmq/broker/b-abc123/general
-  [imported] ...mq_connection <- /aws/amazonmq/broker/b-abc123/connection
+  [imported] ...rds_postgresql <- /aws/rds/instance/int-regional-hyperfleet/postgresql
+  [imported] ...rds_upgrade <- /aws/rds/instance/int-regional-hyperfleet/upgrade
   [imported] ...api_gateway_execution <- API-Gateway-Execution-Logs_xyz789/prod
 
 === Import summary ===
-  Imported:          5
+  Imported:          3
   Already in state:  0
   Not found (fresh): 0
   FAILED:            0
@@ -395,13 +361,11 @@ fi
 --- Importing resources ---
   [skip] ...rds_postgresql — already in state
   [skip] ...rds_upgrade — already in state
-  [skip] ...mq_general — already in state
-  [skip] ...mq_connection — already in state
   [skip] ...api_gateway_execution — already in state
 
 === Import summary ===
   Imported:          0
-  Already in state:  5
+  Already in state:  3
   Not found (fresh): 0
   FAILED:            0
 ======================

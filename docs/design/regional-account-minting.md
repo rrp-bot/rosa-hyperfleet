@@ -161,7 +161,7 @@ sequenceDiagram
 
 ### Performance
 
-- Care should be taken that any pipelines that can run in parallel during new-region creation can be. Our goal is to create a new region within an hour. For example, we can parallelize RC and MC cluster creation using a fan-out pattern, and then come back after those jobs are completed to register the MCs as consumers within the RC's Maestro instance.
+- Care should be taken that any pipelines that can run in parallel during new-region creation can be. Our goal is to create a new region within an hour. For example, we can parallelize RC and MC cluster creation using a fan-out pattern, and then come back after those jobs are completed to register the MCs with the hyperfleet-operator on the RC.
 
 ### Cost
 

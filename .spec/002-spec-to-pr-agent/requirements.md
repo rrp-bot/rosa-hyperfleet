@@ -32,7 +32,7 @@ Build a **Spec-to-PR Agent** — a Python-based orchestrator using the Claude Ag
 - The agent MUST be able to implement E2E tests for the feature being developed
 - The agent MUST be able to implement the feature itself, including:
   - Injecting new versions of components into ArgoCD configurations
-  - Implementing new CLM adapters where required
+  - Implementing new hyperfleet-operator controllers where required
   - Making changes across multiple component repositories (e.g., hypershift, platform-api, CLI)
 - The agent MUST refine E2E tests and implementation based on test feedback
 
@@ -54,10 +54,10 @@ Build a **Spec-to-PR Agent** — a Python-based orchestrator using the Claude Ag
   - **swap-branch**: Switch an environment to a different branch/repo
   - **list**: Display all tracked environments with status
   - **e2e**: Run end-to-end tests against an environment
-  - **collect-logs**: Gather Kubernetes logs from clusters
+  - **dump-env**: Dump environment state (Kubernetes logs and DB state) from clusters
   - **shell**: Open an interactive shell with credentials
   - **bastion**: Connect to RC/MC cluster bastions
-  - **port-forward**: Tunnel Kubernetes services (Maestro, ArgoCD, Prometheus, Grafana)
+  - **port-forward**: Tunnel Kubernetes services (ArgoCD, Prometheus, Grafana)
 - The skill MUST support managing multiple concurrent environments
 - The skill MUST wrap the existing `scripts/dev/ephemeral-env.sh` operations
 

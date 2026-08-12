@@ -1,6 +1,6 @@
 # Zero Operator Access (ZOA) — Architecture
 
-**Last Updated Date**: 2026-06-14
+**Last Updated Date**: 2026-07-29
 
 ## Summary
 
@@ -50,7 +50,9 @@ graph TB
             direction TB
             DynamoExec[DynamoDB<br/>executions]:::storage
             DynamoAudit[DynamoDB<br/>audit log]:::storage
+            DynamoApply[DynamoDB<br/>ApplyDesire]:::storage
             S3[S3 Bucket<br/>artifacts]:::storage
+            PG[PostgreSQL<br/>hyperfleet-db]:::storage
 
             subgraph RC ["Regional Cluster (RC)"]
                 direction TB
@@ -63,11 +65,13 @@ graph TB
 
                 APIGW --> PAPI
 
-                MaestroServer[Maestro Server<br/>gRPC + MQTT]:::component
-                MaestroAgentRC[Maestro Agent<br/>RC-targeted TAs]:::component
+                HFOperator[hyperfleet-operator<br/>ManifestReconciler]:::component
+                KubeApplierRC[kube-applier<br/>RC-targeted TAs]:::component
 
-                PAPI --> MaestroServer
-                MaestroServer <--> MaestroAgentRC
+                PAPI --> PG
+                HFOperator -->|watches Manifest CRs| PG
+                HFOperator -->|writes ApplyDesire| DynamoApply
+                DynamoApply -->|DynamoDB Streams| KubeApplierRC
             end
 
             PAPI -.-> DynamoExec
@@ -79,7 +83,7 @@ graph TB
 
             subgraph MC ["Management Cluster (MC)"]
                 direction TB
-                MaestroAgentMC[Maestro Agent<br/>applies MW]:::component
+                KubeApplierMC[kube-applier<br/>applies manifests]:::component
 
                 subgraph NS ["Namespace: zoa-jobs"]
                     direction TB
@@ -97,12 +101,12 @@ graph TB
                     Uploader -->|reads after Runner exits| CMOutput
                 end
 
-                MaestroAgentMC -->|applies manifests| NS
+                KubeApplierMC -->|applies manifests| NS
             end
         end
     end
 
-    MaestroServer -->|"MQTT (no direct network)"| MaestroAgentMC
+    DynamoApply -->|"DynamoDB Streams (no direct network)"| KubeApplierMC
     Uploader -->|S3 output upload| S3
 
     class rosa cluster
@@ -114,17 +118,19 @@ graph TB
 
 ### Component Responsibilities
 
-| Component                 | Location          | Role                                                    |
-| ------------------------- | ----------------- | ------------------------------------------------------- |
-| **API Gateway**           | AWS (regional)    | SigV4 authentication, request routing                   |
-| **Platform API**          | RC (EKS pod)      | TA validation, job generation, dispatch, reconciliation |
-| **Maestro Server**        | RC (EKS pod)      | ManifestWork storage, MQTT distribution                 |
-| **Maestro Agent**         | RC + MC (EKS pod) | Applies ManifestWorks, reports status via MQTT          |
-| **DynamoDB (executions)** | AWS (regional)    | Execution metadata, status tracking                     |
-| **DynamoDB (audit)**      | AWS (regional)    | API call audit trail                                    |
-| **S3**                    | AWS (regional)    | Artifact storage (output.json, execution.log)           |
-| **KMS**                   | AWS (regional)    | Encryption at rest for DynamoDB and S3                  |
-| **zoa-jobs namespace**    | RC + MC           | Execution environment (Jobs, RBAC, ConfigMaps)          |
+| Component                      | Location          | Role                                                                           |
+| ------------------------------ | ----------------- | ------------------------------------------------------------------------------ |
+| **API Gateway**                | AWS (regional)    | SigV4 authentication, request routing                                          |
+| **Platform API**               | RC (EKS pod)      | TA validation, job generation, Manifest CR creation, reconciliation            |
+| **hyperfleet-operator**        | RC (EKS pod)      | ManifestReconciler watches Manifest CRs, writes ApplyDesire to DynamoDB        |
+| **kube-applier**               | RC + MC (EKS pod) | Reads ApplyDesire from DynamoDB Streams, applies manifests, writes status back |
+| **PostgreSQL (hyperfleet-db)** | AWS (regional)    | Manifest CR storage (single source of truth)                                   |
+| **DynamoDB (ApplyDesire)**     | AWS (regional)    | Resource distribution layer between RC and target clusters                     |
+| **DynamoDB (executions)**      | AWS (regional)    | Execution metadata, status tracking                                            |
+| **DynamoDB (audit)**           | AWS (regional)    | API call audit trail                                                           |
+| **S3**                         | AWS (regional)    | Artifact storage (output.json, execution.log)                                  |
+| **KMS**                        | AWS (regional)    | Encryption at rest for DynamoDB, PostgreSQL, and S3                            |
+| **zoa-jobs namespace**         | RC + MC           | Execution environment (Jobs, RBAC, ConfigMaps)                                 |
 
 ## Request Flow — Sequence Diagram
 
@@ -135,10 +141,11 @@ sequenceDiagram
     participant Op as Operator (zoa CLI)
     participant GW as API Gateway
     participant API as Platform API
-    participant DB as DynamoDB
-    participant MS as Maestro Server
-    participant MQTT as MQTT Broker
-    participant MA as Maestro Agent
+    participant PG as PostgreSQL (hyperfleet-db)
+    participant DB as DynamoDB (executions)
+    participant HFO as hyperfleet-operator
+    participant DDB as DynamoDB (ApplyDesire)
+    participant KA as kube-applier
     participant MC as Target Cluster K8s API
     participant Runner as Runner Job
     participant CM as ConfigMap
@@ -149,17 +156,19 @@ sequenceDiagram
     Op->>GW: POST /trusted-actions/get_pods/run (SigV4)
     GW->>GW: Validate SigV4, extract caller identity
     GW->>API: Forward request + X-Amz headers
-    API->>API: Validate params, build ManifestWork
+    API->>API: Validate params, build manifest payload
     API->>DB: Create execution record (status=pending, jira, ttl)
-    API->>MS: gRPC CreateManifestWork
+    API->>PG: Create Manifest CR in PostgreSQL
     API-->>Op: 202 {id, status: "pending"}
 
-    Note over Op,S3: 2. Dispatch (MQTT, no direct network)
-    MS->>MQTT: Publish ManifestWork to target cluster topic
-    MQTT->>MA: Deliver ManifestWork
-    MA->>MC: Apply manifests (SA, RBAC, CMs, Jobs) on target cluster
-    MA->>MQTT: Report "Applied" status
-    MQTT->>MS: Status feedback
+    Note over Op,S3: 2. Dispatch (DynamoDB, no direct network)
+    HFO->>PG: ManifestReconciler watches Manifest CR
+    HFO->>DDB: Write ApplyDesire to DynamoDB
+    DDB->>KA: DynamoDB Streams delivers ApplyDesire
+    KA->>MC: Apply manifests (SA, RBAC, CMs, Jobs) on target cluster
+    KA->>DDB: Write "Applied" status back to DynamoDB
+    HFO->>DDB: Read status update
+    HFO->>PG: Update Manifest CR status
 
     Note over Op,S3: 3. Execution (Two-Job model on target cluster)
     MC->>Runner: Start runner Job (per-exec SA)
@@ -174,10 +183,11 @@ sequenceDiagram
     Uploader->>Uploader: Exit
 
     Note over Op,S3: 4. Reconciliation (5s loop)
-    API->>MS: gRPC GetManifestWork (poll feedback)
-    MS-->>API: feedbackRules: succeeded/failed + Job timestamps
-    API->>MS: gRPC DeleteManifestWork (cleanup)
-    MA->>MC: Delete all ZOA resources from target cluster
+    API->>PG: Read Manifest CR status (poll for updates)
+    PG-->>API: Status: succeeded/failed + Job timestamps
+    API->>PG: Delete Manifest CR (cleanup)
+    HFO->>DDB: Remove ApplyDesire from DynamoDB
+    KA->>MC: Delete all ZOA resources from target cluster
     API->>DB: Update: status, runner_seconds, upload_seconds, duration_seconds, output_status
 
     Note over Op,S3: 5. Retrieval
@@ -190,31 +200,31 @@ sequenceDiagram
 
 ### Per-Endpoint Data Flow Summary
 
-| Endpoint                   | Components Touched                                                                           |
-| -------------------------- | -------------------------------------------------------------------------------------------- |
-| `POST /{action}/run`       | API Gateway → Platform API → DynamoDB (executions) → Maestro → MQTT → Agent → Target (RC/MC) |
-| `GET /runs/{id}`           | API Gateway → Platform API → DynamoDB (executions) + S3                                      |
-| `GET /runs`                | API Gateway → Platform API → DynamoDB (executions)                                           |
-| `GET /` (catalog)          | API Gateway → Platform API (in-memory registry)                                              |
-| `GET /{action}` (describe) | API Gateway → Platform API (in-memory registry)                                              |
-| `GET /audit`               | API Gateway → Platform API → DynamoDB (audit table)                                          |
+| Endpoint                   | Components Touched                                                                                                                                           |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `POST /{action}/run`       | API Gateway → Platform API → DynamoDB (executions) → PostgreSQL (Manifest CR) → hyperfleet-operator → DynamoDB (ApplyDesire) → kube-applier → Target (RC/MC) |
+| `GET /runs/{id}`           | API Gateway → Platform API → DynamoDB (executions) + S3                                                                                                      |
+| `GET /runs`                | API Gateway → Platform API → DynamoDB (executions)                                                                                                           |
+| `GET /` (catalog)          | API Gateway → Platform API (in-memory registry)                                                                                                              |
+| `GET /{action}` (describe) | API Gateway → Platform API (in-memory registry)                                                                                                              |
+| `GET /audit`               | API Gateway → Platform API → DynamoDB (audit table)                                                                                                          |
 
 ## Network Architecture
 
 ### Key Constraint: No Direct Network Path from RC to MC
 
-The Regional Cluster cannot reach the Management Cluster's Kubernetes API directly. All communication to MCs flows through Maestro's MQTT-based protocol:
+The Regional Cluster cannot reach the Management Cluster's Kubernetes API directly. All communication to MCs flows through DynamoDB as an intermediary:
 
-```
-RC → Maestro Server (gRPC) → MQTT Broker → Maestro Agent (target) → Target Kubernetes API
+```text
+RC → Platform API (creates Manifest CR in PostgreSQL) → hyperfleet-operator (writes ApplyDesire to DynamoDB) → kube-applier (reads from DynamoDB Streams on target) → Target Kubernetes API
 ```
 
-For MC-targeted TAs, the MQTT path crosses the network boundary. For RC-targeted TAs, the Maestro Agent on the RC applies the ManifestWork locally.
+For MC-targeted TAs, the DynamoDB path crosses the network boundary. For RC-targeted TAs, kube-applier on the RC reads the ApplyDesire and applies it locally.
 
 This means:
 
 - Platform API cannot kubectl into remote clusters
-- Status feedback flows back the same path: Target → MQTT → Maestro Server → Platform API (gRPC)
+- Status feedback flows back through DynamoDB: Target kube-applier → DynamoDB (status) → hyperfleet-operator → Manifest CR status update → Platform API
 - Output must be uploaded to S3 directly from the target cluster (via the uploader Job)
 
 ### Authentication Flow
@@ -242,12 +252,12 @@ Platform API
   │ Records in DynamoDB: full caller identity with every execution
   │
   ▼
-Maestro (gRPC CreateManifestWork)
+PostgreSQL (creates Manifest CR)
   │
-  │ No additional auth — internal service call within RC
+  │ No additional auth — internal database within RC
   │
   ▼
-MQTT → Maestro Agent → Job on target cluster
+hyperfleet-operator → DynamoDB (ApplyDesire) → kube-applier → Job on target cluster
 ```
 
 ### S3 Output Pipeline (Two-Job Architecture)
@@ -287,7 +297,7 @@ Operator (via GET /runs/{id}?include=output)
 ### 1. Submission
 
 ```
-Operator: zoa run get_pods -t mc-useast1-1 -n maestro
+Operator: zoa run get_pods -t mc-useast1-1 -n hyperfleet
          │
          ▼
 Platform API receives POST /api/v0/trusted-actions/get_pods/run
@@ -299,22 +309,22 @@ Platform API receives POST /api/v0/trusted-actions/get_pods/run
   - Derives runner SA from scope + type (kube-api → per-exec SA)
   - Generates execution UUID
   - Creates DynamoDB record (status: pending, output_status: pending, jira, ttl=365d)
-  - Builds ManifestWork (SA, RBAC, output CM, scripts CM, uploader RBAC, runner Job, upload Job)
-  - Dispatches via Maestro gRPC CreateManifestWork
+  - Builds manifest payload (SA, RBAC, output CM, scripts CM, uploader RBAC, runner Job, upload Job)
+  - Creates Manifest CR in PostgreSQL (hyperfleet-db)
   - Returns {id, status: "pending"} to caller
 ```
 
 ### 2. Dispatch
 
-```
-Maestro Server
-  - Stores ResourceBundle in database
-  - Publishes to MQTT topic for target cluster consumer (RC or MC)
+```text
+hyperfleet-operator (ManifestReconciler on RC)
+  - Watches Manifest CRs in PostgreSQL (hyperfleet-db)
+  - Writes ApplyDesire to DynamoDB for the target cluster (RC or MC)
          │
-         ▼ MQTT
+         ▼ DynamoDB Streams
          │
-Maestro Agent (on target cluster — RC or MC)
-  - Receives ManifestWork via MQTT subscription
+kube-applier (on target cluster — RC or MC)
+  - Receives ApplyDesire via DynamoDB Streams
   - Applies all manifests to target cluster Kubernetes API:
     1. ServiceAccount: zoa-runner-<exec-id> (per-execution)
     2. ClusterRole/Role (per-execution RBAC)
@@ -325,7 +335,7 @@ Maestro Agent (on target cluster — RC or MC)
     7. Role/RoleBinding: zoa-uploader-<exec-id> (dynamic, scoped to output CM + runner Job)
     8. Runner Job: zoa-<exec-id> (executes TA, writes to output CM)
     9. Uploader Job: zoa-<exec-id>-upload (reads CM, uploads to S3)
-  - Reports status back via MQTT (Applied, Available)
+  - Writes status back to DynamoDB (Applied, Available)
 ```
 
 ### 3. Execution (Two-Job Model)
@@ -340,7 +350,7 @@ Runner Job (zoa-<exec-id>):
     │
     ├── Logs metadata: [zoa] execution_id=... action=... target=...
     ├── Executes /zoa/run.sh (the TA script)
-    │     └── kubectl get pods -n maestro -o json > /artifacts/output.json
+    │     └── kubectl get pods -n hyperfleet -o json > /artifacts/output.json
     ├── Captures exit code
     ├── Patches ConfigMap zoa-output-<exec-id> with:
     │     - data.output.json (if exists)
@@ -371,9 +381,9 @@ Platform API Reconciler (5-second loop on RC)
   │
   ├── For each pending/running execution:
   │     │
-  │     ├── Calls Maestro gRPC GetManifestWork
+  │     ├── Reads Manifest CR status from PostgreSQL
   │     │
-  │     ├── Parses feedbackRules from BOTH Jobs:
+  │     ├── Parses status feedback from BOTH Jobs:
   │     │     Runner:   .status.succeeded, .status.failed, .status.startTime, .status.completionTime
   │     │     Uploader: .status.succeeded, .status.failed, .status.completionTime
   │     │
@@ -385,13 +395,13 @@ Platform API Reconciler (5-second loop on RC)
   │     │     │     runner_seconds  = runner.completionTime - runner.startTime
   │     │     │     upload_seconds  = uploader.completionTime - runner.completionTime
   │     │     │     duration_seconds = now - created_at (total wall-clock)
-  │     │     ├── Delete ResourceBundle from Maestro (gRPC)
-  │     │     │     └── Cascades: Agent removes ManifestWork → all resources on target cluster
+  │     │     ├── Delete Manifest CR from PostgreSQL
+  │     │     │     └── Cascades: operator removes ApplyDesire → kube-applier removes all resources on target cluster
   │     │     └── Update DynamoDB: status, completed_at, updated_at, runner_seconds,
   │     │                          upload_seconds, duration_seconds, output_status (uploaded|failed)
   │     │
   │     └── On timeout (exceeded execution_timeout + upload_timeout + 120s dispatch buffer):
-  │           ├── Delete ResourceBundle from Maestro (cleanup first)
+  │           ├── Delete Manifest CR from PostgreSQL (cleanup first)
   │           └── Update DynamoDB: status=timed_out, duration_seconds
   │
   └── Sleep 5s → repeat
@@ -502,7 +512,7 @@ terraform/modules/zoa/
 
 Static ZOA infrastructure is deployed via the `zoa-jobs` Helm chart at `argocd/config/shared/zoa-jobs/`. The root ArgoCD ApplicationSet discovers charts under `argocd/config/shared/*` and deploys them to both Regional and Management clusters with `CreateNamespace=true`, which creates the `zoa-jobs` namespace automatically.
 
-The chart provisions static ServiceAccounts (`zoa-uploader`, `zoa-aws-read`, `zoa-aws-write`, plus breakglass SAs). Pod Identity associations for AWS-scoped SAs are wired via Terraform (`terraform/modules/zoa/` and `terraform/modules/zoa-job-pod-identity/`). Per-execution resources (runner SA, RBAC, Jobs, ConfigMaps) are created dynamically by each ManifestWork on the target cluster.
+The chart provisions static ServiceAccounts (`zoa-uploader`, `zoa-aws-read`, `zoa-aws-write`, plus breakglass SAs). Pod Identity associations for AWS-scoped SAs are wired via Terraform (`terraform/modules/zoa/` and `terraform/modules/zoa-job-pod-identity/`). Per-execution resources (runner SA, RBAC, Jobs, ConfigMaps) are created dynamically by kube-applier when it processes each ApplyDesire on the target cluster.
 
 ## TA Template System
 
@@ -526,10 +536,10 @@ ConfigMap: zoa-ta-templates (mounted into Platform API pod at /templates/)
 TemplateRegistry (in-memory map of action_name → TATemplate struct)
   │
   ▼ (On each execution request)
-BuildManifestWork(template, renderContext) → ManifestWork with all K8s manifests
+BuildManifestPayload(template, renderContext) → Manifest CR with all K8s manifests
 ```
 
-### Template → ManifestWork Generation
+### Template → Manifest CR Generation
 
 What the TA author writes (~15 lines):
 
@@ -544,7 +554,7 @@ script: |
   kubectl get pods ...
 ```
 
-What Platform API generates (full ManifestWork with ~200 lines of K8s manifests):
+What Platform API generates (Manifest CR with ~200 lines of K8s manifests):
 
 - ServiceAccount (per-execution `zoa-runner-<exec-id>`)
 - Role/ClusterRole (from `rbac.rules`)
@@ -556,7 +566,7 @@ What Platform API generates (full ManifestWork with ~200 lines of K8s manifests)
 - Runner Job (executes TA script, writes output to ConfigMap)
 - Uploader Job (reads ConfigMap, uploads to S3)
 - Job (image, volumes, env vars, resources, labels, TTL)
-- ManifestWork feedbackRules (extract Job status)
+- Status tracking fields (extract Job status via DynamoDB feedback)
 
 ### Job Boilerplate (Centrally Managed)
 
@@ -584,12 +594,13 @@ Changing any of these updates ALL future TA executions — no per-TA changes nee
 
 ### Normal Cleanup (Reconciler-Driven)
 
-```
-1. Reconciler detects Job terminal status (succeeded/failed) via ManifestWork feedback
-2. Reconciler deletes ResourceBundle from Maestro (gRPC)
-3. Maestro Agent removes ManifestWork from its local state
-4. Agent cascades deletion: Job, Pod, ConfigMap, Role, RoleBinding — all removed from target cluster
-5. Reconciler updates DynamoDB with terminal status and duration
+```text
+1. Reconciler detects Job terminal status (succeeded/failed) via Manifest CR status feedback
+2. Reconciler deletes Manifest CR from PostgreSQL
+3. hyperfleet-operator sets delete flag on ApplyDesire in DynamoDB
+4. kube-applier processes deletion: Job, Pod, ConfigMap, Role, RoleBinding — all removed from target cluster
+5. After deletion propagates, hyperfleet-operator removes ApplyDesire from DynamoDB
+6. Reconciler updates DynamoDB with terminal status and duration
 ```
 
 ### Timeout Model
@@ -603,11 +614,11 @@ Formula: execution_timeout + upload_timeout + 120s (dispatch buffer)
 Default: 1800 + 120 + 120 = 2040s (~34 min)
 ```
 
-The dispatch buffer (hardcoded 120s) accounts for Maestro MQTT delivery, pod scheduling, and image pull before the uploader poll loop starts. The reconciler polls DynamoDB every 5s and checks `created_at` against this budget.
+The dispatch buffer (hardcoded 120s) accounts for DynamoDB Streams delivery, pod scheduling, and image pull before the uploader poll loop starts. The reconciler polls DynamoDB every 5s and checks `created_at` against this budget.
 
 When exceeded:
 
-1. Delete ResourceBundle from Maestro (stops all Jobs via cascade)
+1. Delete Manifest CR from PostgreSQL (stops all Jobs via cascade through operator and kube-applier)
 2. Update DynamoDB: status=timed_out, duration_seconds
 
 Fires when: Normal operation. Every timed-out execution goes through this path.
@@ -622,13 +633,13 @@ Set on BOTH runner and uploader Job specs.
 
 When exceeded: Kubernetes forcibly terminates the pod and marks the Job as Failed with reason=DeadlineExceeded.
 
-Fires when the reconciler FAILED to delete the ResourceBundle:
+Fires when the reconciler FAILED to delete the Manifest CR:
 
 - Platform API pod crashed or restarted (reconciler loop stopped)
-- Maestro gRPC is unreachable (DeleteManifestWork fails repeatedly)
+- PostgreSQL is unreachable (Manifest CR deletion fails repeatedly)
 - DynamoDB query failed (reconciler never found this execution)
 
-In these cases, the ManifestWork stays on the target cluster with Jobs still running. `activeDeadlineSeconds` ensures K8s itself kills the pods after ~35 min, preventing infinite resource consumption. The reconciler will eventually recover and clean up the ResourceBundle on its next successful poll — by then the Jobs are already dead.
+In these cases, the ApplyDesire stays in DynamoDB with Jobs still running on the target cluster. `activeDeadlineSeconds` ensures K8s itself kills the pods after ~35 min, preventing infinite resource consumption. The reconciler will eventually recover and clean up the Manifest CR on its next successful poll — by then the Jobs are already dead.
 
 **Layer 3 — ttlSecondsAfterFinished (garbage collection)**
 
@@ -639,17 +650,17 @@ Set on BOTH runner and uploader Job specs.
 
 This is a native K8s Job controller feature — it deletes the **Job object** (not the pod) from the cluster after the specified duration post-completion.
 
-Fires when a Job already reached terminal state (Complete or Failed) but the ManifestWork was never deleted:
+Fires when a Job already reached terminal state (Complete or Failed) but the applied resources were never cleaned up:
 
-- Reconciler deleted the ResourceBundle, but Maestro Agent failed to cascade the ManifestWork deletion (Agent bug, CRD issue)
-- `activeDeadlineSeconds` killed the pod (Layer 2), Job became Failed, but the ResourceBundle/ManifestWork still exist on cluster
+- Reconciler deleted the Manifest CR, but kube-applier failed to cascade the resource deletion (applier bug, connectivity issue)
+- `activeDeadlineSeconds` killed the pod (Layer 2), Job became Failed, but the ApplyDesire and applied resources still exist on cluster
 
 What it does NOT cover: Jobs stuck in a running state that never finish — those are handled by Layer 2.
 
 **Summary**
 
-```
-Happy path:       Reconciler detects completion/timeout → deletes RB → done (~seconds)
+```text
+Happy path:       Reconciler detects completion/timeout → deletes Manifest CR → done (~seconds)
 Reconciler down:  activeDeadlineSeconds kills pods (~2100s) → TTL cleans Job objects (+3600s)
 Both fail:        Jobs run until activeDeadlineSeconds, then GC after TTL
 ```
@@ -675,7 +686,7 @@ Every execution produces audit data at multiple layers:
 | Kubernetes (labels on all resources)     | execution-id, operator, action, scope, type, revision, target                                                                         | `kubectl get jobs -l zoa.rosa.io/operator=slopezma` |
 | Platform API (DynamoDB audit table)      | Every audited API call: method, path (full URI), action, target, execution_id, jira, approval_state, operator, status_code, timestamp | `zoa audit` CLI                                     |
 | AWS CloudTrail                           | SigV4 caller identity on API Gateway invocation                                                                                       | CloudTrail console                                  |
-| Maestro (MQTT events)                    | ManifestWork create/delete events with metadata                                                                                       | Maestro server logs                                 |
+| DynamoDB (ApplyDesire)                   | Manifest CR create/delete events, kube-applier status updates                                                                         | DynamoDB console or CloudWatch                      |
 
 ### Correlation
 
@@ -719,4 +730,3 @@ When enabled, write TAs with structured approval policies will require peer appr
 
 - [ZOA Trusted Actions — Implementation Details](./zoa-trusted-actions.md) — TA template format, CLI design, API endpoints
 - [ZOA Security Model](./zoa-security-model.md) — SA isolation strategies, RBAC model, audit
-- [Maestro MQTT Resource Distribution](./maestro-mqtt-resource-distribution.md) — ManifestWork dispatch mechanism

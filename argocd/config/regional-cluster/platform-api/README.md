@@ -32,7 +32,6 @@ platformApi:
       tag: nodb
     args:
       allowedAccounts: "123456789012" # Comma-separated AWS account IDs
-      maestroUrl: http://maestro:8000
 
   envoy:
     enabled: true
@@ -69,7 +68,6 @@ platformApi:
       tag: "v1.2.3"
     args:
       allowedAccounts: "111111111111,222222222222"
-      maestroUrl: http://maestro.maestro.svc.cluster.local:8000
       logLevel: debug
 
   targetGroup:
@@ -126,7 +124,6 @@ kubectl delete namespace platform-api
 | `platformApi.app.image.repository`     | Container image repository           | `quay.io/cdoan0/rosa-regional-platform-api` |
 | `platformApi.app.image.tag`            | Container image tag                  | `nodb`                                      |
 | `platformApi.app.args.allowedAccounts` | Comma-separated AWS account IDs      | `"123456789012"`                            |
-| `platformApi.app.args.maestroUrl`      | Maestro service URL                  | `http://maestro:8000`                       |
 | `platformApi.app.args.logLevel`        | Log level (debug, info, warn, error) | `info`                                      |
 | `platformApi.deployment.replicas`      | Number of replicas                   | `1`                                         |
 

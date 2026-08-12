@@ -132,7 +132,7 @@ For each job whose **latest run failed**, produce a **separate threaded reply** 
    - Fetch scope based on Prow analysis: RC-only, MC + RC, or both if unclear
    - If S3 logs are inaccessible, report the specific error — classification ceiling becomes Unclear
 
-3. **Git commit correlation** (Step 5c in ci-troubleshooter) — **MANDATORY.** Identify the last passing run, find all commits between last-good and current-bad, and examine commits touching the failing component. Also check `rosa-hyperfleet-api` for API/CLM failures.
+3. **Git commit correlation** (Step 5c in ci-troubleshooter) — **MANDATORY.** Identify the last passing run, find all commits between last-good and current-bad, and examine commits touching the failing component. Also check `rosa-hyperfleet-api` for API/hyperfleet-operator failures.
 
 **S3 log handling:** Always extract tar.gz locally for full analysis. Clean up downloaded files immediately after analysis is complete — never leave S3 logs on disk between runs. See Step 5b in `.claude/agents/ci-troubleshooter.md` for the full procedure.
 
@@ -247,10 +247,10 @@ integration:   ✅    ✅    ❌    ✅    ✅    ✅    ✅    ✅    ❌    �
 
 🔧 *Genuine* — E2E test `TestClusterCreation` timed out waiting for hosted cluster to become ready.
 Evidence: Prow ✅ | S3 Logs ✅ | Git History ✅ | Trend ✅
-Root cause: MC maestro-agent pod in CrashLoopBackOff due to MQTT connection failure — incorrect broker endpoint in ArgoCD values.
-S3 Log Evidence: `maestro-agent/pods/agent-xyz/agent/logs/current.log` — 47x `CONNACK refused: not authorized`; pod status: CrashLoopBackOff
-Suspect Commits: `a1b2c3d` — `feat(argocd): update maestro broker endpoint` — touches `argocd/config/management-cluster/maestro/`
-Consecutive failures (2 days): same root cause as Jun 29 — maestro CONNACK failure with identical error signature.
+Root cause: MC kube-applier pod in CrashLoopBackOff due to DynamoDB connectivity failure — incorrect table name in ArgoCD values.
+S3 Log Evidence: `kube-applier/pods/kube-applier-xyz/kube-applier/logs/current.log` — 47x `ResourceNotFoundException: Requested resource not found`; pod status: CrashLoopBackOff
+Suspect Commits: `a1b2c3d` — `feat(argocd): update kube-applier DynamoDB config` — touches `argocd/config/management-cluster/kube-applier/`
+Consecutive failures (2 days): same root cause as Jun 29 — kube-applier DynamoDB failure with identical error signature.
 
 Most recent failure: <url|Build #1234> (Jun 30)
 Failing since: Jun 29 (2 consecutive days)

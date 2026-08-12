@@ -54,9 +54,9 @@ sequenceDiagram
 flowchart TB
     subgraph RC["Regional Cluster"]
         API["Platform API"]
-        CLM["CLM"]
-        Adapter["Adapter"]
-        Maestro["Maestro"]
+        HFO["hyperfleet-operator"]
+        DDB["DynamoDB"]
+        KAA["kube-applier"]
     end
 
     subgraph MC["Management Cluster"]
@@ -74,10 +74,10 @@ flowchart TB
         HSO["HC Controller"]
     end
 
-    API -->|"creatorARN in spec"| CLM
-    CLM --> Adapter
-    Adapter -->|ManifestWork| Maestro
-    Maestro --> HC_NS
+    API -->|"creatorARN in spec"| HFO
+    HFO -->|"desire document"| DDB
+    KAA -->|"reads desires"| DDB
+    KAA --> HC_NS
     HSO -->|"sync ConfigMap"| CM_HCP
     CM_HCP -.->|"volume mount"| SIDECAR
     KAS -->|"webhook :21362"| SIDECAR
@@ -89,7 +89,7 @@ flowchart TB
 
 1. **Platform API** captures the cluster creator's IAM ARN from the SigV4 request context (`X-Amz-Caller-Arn` header from API Gateway) and stores it in the cluster spec as `creatorARN`.
 
-2. **Adapter** reads `creatorARN` via CEL expression and templates it into the ManifestWork, which delivers to the HC namespace:
+2. **Hyperfleet operator** reads `creatorARN` from the cluster spec and includes it in the Manifest CR, which kube-applier delivers to the HC namespace:
    - A `HostedCluster` with annotation `hypershift.openshift.io/aws-iam-authenticator: "true"`
    - An `aws-iam-auth-config` ConfigMap mapping the creator ARN to `system:masters`
 
@@ -105,15 +105,14 @@ If `creatorARN` is not set (e.g. API change not deployed), the ConfigMap is stil
 
 ### Changes by Repository
 
-| Repository            | Files                                     | Change                                                      |
-| --------------------- | ----------------------------------------- | ----------------------------------------------------------- |
-| `rosa-hyperfleet`     | `manifestwork.yaml`                       | `aws-iam-auth-config` ConfigMap, HC annotation              |
-| `rosa-hyperfleet`     | `adapter-task-config.yaml`                | `creatorARN` CEL capture                                    |
-| `rosa-hyperfleet-api` | `pkg/handlers/cluster.go`                 | Inject `creatorARN` from SigV4 caller identity              |
-| `rosa-hyperfleet-cli` | `internal/commands/cluster/kubeconfig.go` | `rosactl cluster kubeconfig` command                        |
-| `hypershift`          | `hostedcluster_controller.go`             | ConfigMap sync HC->HCP, annotation in `mirroredAnnotations` |
-| `hypershift`          | `kas/deployment.go`                       | `aws-iam-authenticator` sidecar injection                   |
-| `hypershift`          | `kas/oauth.go`                            | Webhook redirect to localhost:21362                         |
+| Repository            | Files                                                                              | Change                                                                |
+| --------------------- | ---------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `rosa-hyperfleet-api` | `hyperfleet-operator/internal/controller/`, `hyperfleet-operator/internal/render/` | `aws-iam-auth-config` ConfigMap, HC annotation, `creatorARN` handling |
+| `rosa-hyperfleet-api` | `pkg/handlers/cluster.go`                                                          | Inject `creatorARN` from SigV4 caller identity                        |
+| `rosa-hyperfleet-cli` | `internal/commands/cluster/kubeconfig.go`                                          | `rosactl cluster kubeconfig` command                                  |
+| `hypershift`          | `hostedcluster_controller.go`                                                      | ConfigMap sync HC->HCP, annotation in `mirroredAnnotations`           |
+| `hypershift`          | `kas/deployment.go`                                                                | `aws-iam-authenticator` sidecar injection                             |
+| `hypershift`          | `kas/oauth.go`                                                                     | Webhook redirect to localhost:21362                                   |
 
 ### Key Configuration
 
@@ -144,4 +143,4 @@ users:
 ## Related Documentation
 
 - [aws-iam-authenticator](https://github.com/kubernetes-sigs/aws-iam-authenticator)
-- [Maestro MQTT Resource Distribution](maestro-mqtt-resource-distribution.md)
+- [kube-applier Resource Distribution](kube-applier-resource-distribution.md)

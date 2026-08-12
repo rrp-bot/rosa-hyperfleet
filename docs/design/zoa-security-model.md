@@ -35,14 +35,14 @@ This document details the security architecture for ZOA Trusted Actions: how pri
 ┌─────────────────────────────────────────┐
 │ Trust Zone B: Regional Cluster (RC)      │
 │  - Platform API (validates, dispatches) │
-│  - Maestro Server (stores, distributes) │
-│  - DynamoDB + S3 (persists)             │
+│  - hyperfleet-operator (ManifestReconciler) │
+│  - hyperfleet-db + DynamoDB + S3        │
 └────────────────────┬────────────────────┘
-                     │ MQTT (encrypted)
+                     │ DynamoDB + DynamoDB Streams
                      ▼
 ┌─────────────────────────────────────────┐
 │ Trust Zone C: Management Cluster (MC)    │
-│  - Maestro Agent (applies manifests)    │
+│  - kube-applier (applies resources) │
 │  - zoa-jobs namespace (executes TAs)    │
 │  - Control plane namespaces (HCPs)      │
 └─────────────────────────────────────────┘
@@ -96,7 +96,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: zoa-<execution-id>
-  namespace: maestro
+  namespace: hyperfleet
   labels:
     zoa.rosa.io/execution-id: "fa65418c-..."
     zoa.rosa.io/action: "get_pods"
@@ -110,7 +110,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: zoa-<execution-id>
-  namespace: maestro
+  namespace: hyperfleet
 subjects:
   - kind: ServiceAccount
     name: zoa-runner-<execution-id>
@@ -124,7 +124,7 @@ roleRef:
 
 - RBAC resources are scoped to exactly what the TA declares — nothing more
 - RoleBindings bind the per-execution runner SA
-- All RBAC resources are deleted when the reconciler cleans up the ResourceBundle
+- All RBAC resources are deleted when the reconciler cleans up the Manifest CR
 - Namespace-scoped Roles for namespace-specific TAs, ClusterRoles for cluster-wide TAs
 
 ### ServiceAccount Model (Two-Job Architecture)
@@ -140,7 +140,7 @@ ZOA uses a split SA model for privilege separation:
 
 **Key design decisions:**
 
-1. **Per-execution SA for kube TAs**: `zoa-runner-<exec-id>` is created dynamically as part of the ManifestWork. It has no Pod Identity (no AWS IAM role). This gives perfect K8s audit-log attribution.
+1. **Per-execution SA for kube TAs**: `zoa-runner-<exec-id>` is created dynamically as part of the Manifest CR. It has no Pod Identity (no AWS IAM role). This gives perfect K8s audit-log attribution.
 2. **Static SAs for AWS TAs**: `zoa-aws-read` and `zoa-aws-write` require pre-provisioned Pod Identity associations. These are static but still have **no access to the ZOA S3 bucket**.
 3. **Dedicated uploader SA**: Only `zoa-uploader` can write to S3. Kubernetes RBAC for the uploader is generated dynamically per execution (not a static Helm template), scoped with `resourceNames` to the specific output ConfigMap and runner Job.
 4. **No SA has both**: No single SA has both operational permissions AND S3 write access.
@@ -239,7 +239,7 @@ x-amz-meta-target: mc-useast1-1
 | All API calls (POST + GET)    | DynamoDB (audit table)   | 365 days (TTL)         | `zoa audit`     |
 | API Gateway access            | CloudTrail               | 90 days (configurable) | AWS Console     |
 | Kubernetes API calls from Job | Target cluster audit log | Cluster-dependent      | kubectl audit   |
-| ResourceBundle lifecycle      | Maestro server logs      | Log retention          | kubectl logs    |
+| Desire document lifecycle     | DynamoDB desire writes   | 365 days (TTL)         | DynamoDB query  |
 
 **Audit table design**: Every audited call (`POST /run`, `GET /runs`, `GET /runs/{id}`, `GET /audit`) is recorded with consistent fields: `id`, `account_id`, `caller_arn`, `operator`, `method`, `path` (full URI), `action`, `target_cluster`, `execution_id`, `jira`, `approval_state`, `status_code`, `timestamp`. Fields not applicable to a call type are empty strings. The sort key uses nanosecond-precision timestamps (`2006-01-02T15:04:05.000000000Z`) for uniqueness. Catalog/describe endpoints are not audited (public metadata, high frequency).
 
@@ -275,7 +275,7 @@ The two-job architecture enforces privilege separation:
 ### Architecture
 
 ```
-ManifestWork contains:
+Manifest CR contains:
   ├── ServiceAccount: zoa-runner-<exec-id> (per-execution, no AWS)
   ├── Role/ClusterRole (per-execution RBAC for TA)
   ├── RoleBinding → zoa-runner-<exec-id>
@@ -317,7 +317,7 @@ ManifestWork contains:
 - Shared PVC between Jobs (eliminates size limit but adds provisioning)
 - Runner direct S3 upload for specific large-output TAs (breaks isolation but pragmatic)
 
-**Uploader RBAC is dynamic per execution**: Platform API generates a `Role`/`RoleBinding` pair (`zoa-uploader-<exec-id>`) in each ManifestWork, scoped with `resourceNames` to:
+**Uploader RBAC is dynamic per execution**: Platform API generates a `Role`/`RoleBinding` pair (`zoa-uploader-<exec-id>`) in each Manifest CR, scoped with `resourceNames` to:
 
 - The specific output ConfigMap (`zoa-output-<exec-id>`)
 - The specific runner Job (`zoa-<exec-id>`)
@@ -338,7 +338,7 @@ The `zoa-uploader` ServiceAccount is static (required for Pod Identity), but its
 | TLS            | FIPS-validated TLS libraries in RHEL UBI9 base image  |
 | AWS CLI in job | Uses FIPS endpoints when `AWS_USE_FIPS_ENDPOINT=true` |
 | DynamoDB       | FIPS endpoint via VPC Gateway Endpoint                |
-| MQTT (Maestro) | TLS 1.2+ with FIPS-validated cipher suites            |
+| hyperfleet-db  | TLS 1.2+ enforced by Aurora PostgreSQL                |
 
 ## Network Security (Planned)
 
@@ -396,7 +396,7 @@ spec:
 | AU-12 (Audit Generation)                  | Automatic — all audited API calls recorded; rejections (400/429) also captured                                                                                                                           |
 | CM-7 (Least Functionality)                | No shell access, no arbitrary commands — only pre-approved TAs                                                                                                                                           |
 | IA-2 (Identification and Authentication)  | SigV4 + STS, caller ARN extracted per request                                                                                                                                                            |
-| SC-8 (Transmission Confidentiality)       | TLS 1.2+ on all channels (API, MQTT, S3)                                                                                                                                                                 |
+| SC-8 (Transmission Confidentiality)       | TLS 1.2+ on all channels (API, DynamoDB, hyperfleet-db, S3)                                                                                                                                              |
 | SC-13 (Cryptographic Protection)          | FIPS-validated KMS, SSE-KMS at rest                                                                                                                                                                      |
 | SC-28 (Protection of Information at Rest) | SSE-KMS for S3 and DynamoDB                                                                                                                                                                              |
 | SI-4 (Information System Monitoring)      | Reconciler loop monitors execution status continuously                                                                                                                                                   |

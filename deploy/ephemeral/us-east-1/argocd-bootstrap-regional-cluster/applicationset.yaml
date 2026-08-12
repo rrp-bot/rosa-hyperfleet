@@ -45,6 +45,7 @@ spec:
           selfHeal: true
         retry:
           limit: -1
+          refresh: true
           backoff:
             duration: 5s
             factor: 2
@@ -81,6 +82,8 @@ spec:
                 tableName: '{{ .metadata.annotations.zoa_table_name }}'
                 auditTableName: '{{ .metadata.annotations.zoa_audit_table_name }}'
                 bucketName: '{{ .metadata.annotations.zoa_bucket_name }}'
+              rateLimit:
+                redisEndpoint: '{{ .metadata.annotations.redis_endpoint }}'
             # Thanos Operator values (keys must match chart's values.yaml structure)
             thanos:
               kmsKeyArn: '{{ .metadata.annotations.thanos_kms_key_arn }}'
@@ -99,10 +102,6 @@ spec:
                 arn: '{{ .metadata.annotations.loki_distributor_target_group_arn }}'
               queryFrontendTargetGroup:
                 arn: '{{ .metadata.annotations.loki_query_frontend_target_group_arn }}'
-              # SRE UI ALB target group ARNs (empty when enable_sre_tools_gateway = false)
-              sre:
-                targetGroup:
-                  arn: '{{ .metadata.annotations.sre_loki_target_group_arn }}'
             # Loki subchart runtime values (bucket names, region, SSE-KMS)
             loki:
               loki:

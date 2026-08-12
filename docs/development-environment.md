@@ -226,7 +226,7 @@ The bastion task stays running until explicitly stopped or until the environment
 
 ## Port Forwarding
 
-Forward ports from cluster-internal services to your local machine through the bastion, without needing an interactive shell. This is useful for accessing ArgoCD, Prometheus, and Maestro UIs directly in your browser.
+Forward ports from cluster-internal services to your local machine through the bastion, without needing an interactive shell. This is useful for accessing ArgoCD and Prometheus UIs directly in your browser.
 
 > ⚠️ _Bastion must be enabled in your environment config (`enable_bastion: true` in `defaults.yaml`). The default ephemeral preset already has it enabled._
 
@@ -255,16 +255,15 @@ make ephemeral-port-forward-mc-all
 
 Available services per cluster type:
 
-| Service      | RC  | MC  | Local address                                       |
-| ------------ | --- | --- | --------------------------------------------------- |
-| Maestro      | yes | no  | http://localhost:8080 (HTTP), localhost:8090 (gRPC) |
-| ArgoCD       | yes | yes | https://localhost:8443                              |
-| Prometheus   | yes | yes | http://localhost:9090                               |
-| Thanos Query | yes | no  | http://localhost:10902                              |
-| Thanos Ruler | yes | no  | http://localhost:10903                              |
-| Loki         | yes | no  | http://localhost:13100                              |
-| Alertmanager | yes | no  | http://localhost:9093                               |
-| Grafana      | yes | no  | http://localhost:3000                               |
+| Service      | RC  | MC  | Local address          |
+| ------------ | --- | --- | ---------------------- |
+| ArgoCD       | yes | yes | https://localhost:8443 |
+| Prometheus   | yes | yes | http://localhost:9090  |
+| Thanos Query | yes | no  | http://localhost:10902 |
+| Thanos Ruler | yes | no  | http://localhost:10903 |
+| Loki         | yes | no  | http://localhost:13100 |
+| Alertmanager | yes | no  | http://localhost:9093  |
+| Grafana      | yes | no  | http://localhost:3000  |
 
 The command fetches the ArgoCD admin password automatically and prints it to the terminal. Port forwards remain active until you press `Ctrl+C`.
 
@@ -300,25 +299,27 @@ make ephemeral-e2e ID=6bd2d3d7 E2E_SKIP_CLEANUP=1
 
 This skips both the cleanup-labeled ginkgo specs and the `DeferCleanup` safety net, so the HCP cluster, VPC, IAM, and OIDC resources survive for investigation. Remember to tear them down manually afterwards with `make ephemeral-teardown` or by re-running without the flag.
 
-## Collect Cluster Logs
+## Dump Environment
 
-Collect kubernetes diagnostic logs (`oc adm inspect`) from the RC and/or MC clusters in an ephemeral environment. Logs are gathered by a dedicated log-collector ECS task, uploaded to S3, and downloaded locally.
+Collect Kubernetes diagnostic logs (`oc adm inspect`) and PostgreSQL database state from the RC and/or MC clusters in an ephemeral environment. Data is gathered by the log-collector ECS Fargate task, uploaded to S3, and downloaded locally.
+
+For the RC, this also dumps the `kubernetes_resources` table from Aurora PostgreSQL — producing a tabular summary (`resource-summary.txt`) and per-resource JSON files under `db-state/resources/<Kind>/<name>.json`.
 
 ```bash
 # Collect from both RC and all MCs
-make ephemeral-collect-logs
+make ephemeral-dump-env
 
 # Collect from RC only
-make ephemeral-collect-logs CLUSTER=rc
+make ephemeral-dump-env CLUSTER=rc
 
 # Collect from MCs only
-make ephemeral-collect-logs CLUSTER=mc
+make ephemeral-dump-env CLUSTER=mc
 
 # Explicit environment selection
-make ephemeral-collect-logs ID=6bd2d3d7
+make ephemeral-dump-env ID=6bd2d3d7
 ```
 
-Output is written to `/tmp/<eph-prefix>-logs-<timestamp>/`. In CI, logs are automatically collected on e2e test failure with `S3_ONLY=true` — logs are left in S3 (to avoid publishing sensitive data) and the S3 URIs are printed for manual retrieval.
+Output is written to `/tmp/<eph-prefix>-logs-<timestamp>/`. The RC output includes a `db-state/` subdirectory with the database dump. In CI, data is automatically collected on e2e test failure with `S3_ONLY=true` — results are left in S3 (to avoid publishing sensitive data) and the S3 URIs are printed for manual retrieval.
 
 > ⚠️ _Bastion must be enabled in your environment config (`enable_bastion: true` in `defaults.yaml`). The default ephemeral preset already has it enabled._
 
@@ -369,3 +370,4 @@ make ephemeral-teardown ID=6bd2d3d7
 
 - [Milestone 2 slides](presentations/milestone-2/slides.md) -- ephemeral provider architecture and how environments are provisioned/torn down
 - [ci/ephemeral-provider/README.md](../ci/ephemeral-provider/README.md) -- ephemeral provider internals
+- [SRE UI Access — Integration](sop/sre-ui-access.md) -- accessing Grafana, ArgoCD, Prometheus, Thanos, and Loki in the integration environment
