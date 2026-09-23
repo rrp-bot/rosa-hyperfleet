@@ -22,6 +22,12 @@ spec:
     raw: {{ .Values.compactor.retentionResolutionRaw }}
     fiveMinutes: {{ .Values.compactor.retentionResolution5m }}
     oneHour: {{ .Values.compactor.retentionResolution1h }}
+  verticalCompactionConfig:
+    deduplicationFunc: {{ .Values.compactor.deduplicationFunc }}
+    replicaLabels:
+      {{- range .Values.compactor.replicaLabels }}
+      - {{ . | quote }}
+      {{- end }}
   storage:
     size: {{ .Values.compactor.storage.size }}
     {{- if .Values.compactor.storage.storageClass }}

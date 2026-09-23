@@ -13,9 +13,8 @@ objectStore:
 
 receive:
   enabled: true
-  # For production, use replicas: 3, replicationFactor: 2
-  replicas: 1
-  replicationFactor: 1
+  replicas: 3
+  replicationFactor: 2
   retention: 2h
 
   additionalArgs:
@@ -28,9 +27,9 @@ receive:
   resources:
     requests:
       cpu: 700m
-      memory: 3Gi
-    limits:
       memory: 5Gi
+    limits:
+      memory: 7Gi
 
   router:
     replicas: 1
@@ -84,6 +83,15 @@ storeGateway:
 
 compactor:
   enabled: true
+
+  # Deduplicate HA Prometheus, Receive, and Thanos Ruler replicas during
+  # vertical compaction. The penalty algorithm handles scrape timestamp
+  # differences between HA Prometheus replicas.
+  deduplicationFunc: penalty
+  replicaLabels:
+    - prometheus_replica
+    - replica
+    - rule_replica
 
   resources:
     requests:

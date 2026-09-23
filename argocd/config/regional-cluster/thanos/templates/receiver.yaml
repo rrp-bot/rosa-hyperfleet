@@ -22,6 +22,8 @@ spec:
     hashrings:
       - name: default
         replicas: {{ .Values.receive.replicas }}
+        externalLabels:
+          replica: "$(POD_NAME)"
         tsdbConfig:
           retention: {{ .Values.receive.retention }}
         {{- if .Values.receive.tooFarInFutureTimeWindow }}
